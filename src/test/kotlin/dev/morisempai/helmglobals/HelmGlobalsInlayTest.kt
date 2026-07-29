@@ -24,6 +24,15 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
               hosts:
                 - a.dev.corp
                 - b.dev.corp
+              services:
+                - name: api
+                  port: 8080
+                  probe:
+                    path: /healthz
+                - name: web
+                  port: 80
+                  probe:
+                    path: /
               image:
                 pullPolicy: IfNotPresent
             """.trimIndent(),
@@ -215,6 +224,67 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
             {{- end }}
             /*<# block [  - plain: a.dev.corp] #>*/
             /*<# block [  - plain: b.dev.corp] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsARangeOverAListOfMappings() {
+        doTestProvider(
+            "values.yaml",
+            """
+            services:
+            {{- range .Values.global.services }}
+              - name: {{ .name }}
+                port: {{ .port }}
+            /*<# block [  - name: api] #>*/
+            /*<# block [    port: 8080] #>*/
+            /*<# block [  - name: web] #>*/
+            /*<# block [    port: 80] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsFieldsThroughAnAssignedVariable() {
+        doTestProvider(
+            "values.yaml",
+            """
+            services:
+            {{- range ${'$'}service := .Values.global.services }}
+              - {{ ${'$'}service.name }}:{{ ${'$'}service.port }}
+            /*<# block [  - api:8080] #>*/
+            /*<# block [  - web:80] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsNestedFieldsOfAMappingElement() {
+        doTestProvider(
+            "values.yaml",
+            """
+            services:
+            {{- range .Values.global.services }}
+              - {{ .name }}: {{ .probe.path }}
+            /*<# block [  - api: /healthz] #>*/
+            /*<# block [  - web: /] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsNoPreviewForAFieldTheElementDoesNotHave() {
+        doTestProvider(
+            "values.yaml",
+            """
+            services:
+            {{- range .Values.global.services }}
+              - {{ .nope }}
             {{- end }}
             """.trimIndent(),
             HelmGlobalsInlayProvider(),

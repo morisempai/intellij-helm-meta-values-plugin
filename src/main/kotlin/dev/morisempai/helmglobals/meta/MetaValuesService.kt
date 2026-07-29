@@ -193,7 +193,24 @@ class MetaValuesService(private val project: Project) {
         return MetaSequence(
             items = values.map { renderValue(it) },
             allScalars = values.all { it is YAMLScalar },
+            fields = values.map { value -> (value as? YAMLMapping)?.let { fieldsOf(it, "", 0) } ?: emptyMap() },
         )
+    }
+
+    /** Scalar fields of a sequence element, flattened under dotted names so `{{ .a.b }}` resolves. */
+    private fun fieldsOf(mapping: YAMLMapping, prefix: String, depth: Int): Map<String, String> {
+        if (depth > MAX_DEPTH) return emptyMap()
+        val fields = LinkedHashMap<String, String>()
+        for (keyValue in mapping.keyValues) {
+            val key = keyValue.keyText.trim()
+            if (key.isEmpty()) continue
+            val name = if (prefix.isEmpty()) key else "$prefix.$key"
+            when (val value = keyValue.value) {
+                is YAMLMapping -> fields += fieldsOf(value, name, depth + 1)
+                else -> fields[name] = renderValue(value)
+            }
+        }
+        return fields
     }
 
     private fun renderValue(value: YAMLValue?): String = when (value) {

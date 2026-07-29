@@ -209,9 +209,36 @@ The assignment forms bind their variables, so `{{ $host }}` and `{{ $i }}` rende
 {{- end }}
 ```
 
-- The list has to hold scalars, and every expression in the body has to be one the evaluator
-  understands. If any line cannot be rendered exactly, the whole preview is dropped rather than
-  shown half-filled.
+A list of mappings works through its fields, which is the usual shape for something like `services`:
+
+```yaml
+# .helm-globals.yaml
+global:
+  services:
+    - name: api
+      port: 8080
+    - name: web
+      port: 80
+```
+
+```yaml
+services:
+{{- range .Values.global.services }}
+  - name: {{ .name }}
+    port: {{ .port }}
+      - name: api        ← preview
+        port: 8080
+      - name: web
+        port: 80
+{{- end }}
+```
+
+`{{ $service.name }}` works too, after `range $service := .Values.global.services`, as do nested
+fields such as `{{ .probe.path }}`.
+
+- The list has to hold either all scalars or all mappings, and every expression in the body has to be
+  one the evaluator understands — including every field it reaches for. If any line cannot be
+  rendered exactly, the whole preview is dropped rather than shown half-filled.
 - A nested `range`, or a `with` that rebinds the dot, is more than the preview models and drops it.
 - Previews stop after 12 lines and end with `… N more items`.
 - Lists show as `[n]` in completion, with the item count instead of their flattened text.

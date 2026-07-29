@@ -9,10 +9,20 @@ import org.jetbrains.yaml.psi.YAMLKeyValue
  */
 /**
  * A sequence value, kept item by item so a `range` over it can be previewed.
- * [allScalars] is false as soon as one item is a mapping or a nested list, which is when the loop
- * body would reach into the item and the preview cannot be worked out.
+ *
+ * A list of scalars is used through the dot — `{{ . }}` — and a list of mappings through its fields
+ * — `{{ .name }}` — so both are kept: [items] renders each element, [fields] holds the scalar fields
+ * of each element under their dotted names.
  */
-data class MetaSequence(val items: List<String>, val allScalars: Boolean)
+data class MetaSequence(
+    val items: List<String>,
+    val allScalars: Boolean,
+    /** Per element, in order: dotted field name to value. Empty for an element that is not a mapping. */
+    val fields: List<Map<String, String>>,
+) {
+    /** Every element is a mapping with something in it, so the body can reach into the element. */
+    val allMappings: Boolean get() = fields.isNotEmpty() && fields.all { it.isNotEmpty() }
+}
 
 data class MetaValue(
     val path: String,

@@ -17,18 +17,20 @@ object TemplateEvaluator {
      * [body] is the expression without its `{{ }}`. [resolve] maps a path written after `.Values.`
      * to its value, returning `null` for anything it does not know or that is not a scalar. [dot]
      * is the value of `.`, which is what a `range` binds it to; without one, a bare dot makes the
-     * expression unevaluable. [variables] are the `$name` bindings in scope, as declared by
-     * `range $i, $host := …`.
+     * expression unevaluable. [dotFields] are the fields of the current element, so that a range
+     * over a list of mappings can render `{{ .name }}`. [variables] are the `$name` bindings in
+     * scope, as declared by `range $i, $host := …`.
      */
     fun evaluate(
         body: String,
         dot: String? = null,
+        dotFields: Map<String, String> = emptyMap(),
         variables: Map<String, String> = emptyMap(),
         resolve: (String) -> String?,
     ): String? {
         val tokens = tokenize(body.trim().removePrefix("-").removeSuffix("-")) ?: return null
         if (tokens.isEmpty()) return null
-        val parser = Parser(tokens, dot, variables, resolve)
+        val parser = Parser(tokens, dot, dotFields, variables, resolve)
         val value = parser.pipeline() ?: return null
         // Trailing tokens mean the parser stopped early; `failed` means an operand could not be
         // resolved. Either way the value in hand is only part of the expression.
@@ -43,12 +45,13 @@ object TemplateEvaluator {
     fun condition(
         body: String,
         dot: String? = null,
+        dotFields: Map<String, String> = emptyMap(),
         variables: Map<String, String> = emptyMap(),
         resolve: (String) -> String?,
     ): Boolean? {
         val expression = CONDITION_KEYWORD.replace(body.trim().removePrefix("-").trim(), "")
         if (expression.isBlank()) return null
-        return evaluate(expression, dot, variables, resolve)?.let(::isTruthy)
+        return evaluate(expression, dot, dotFields, variables, resolve)?.let(::isTruthy)
     }
 
     /**
@@ -68,6 +71,7 @@ object TemplateEvaluator {
         data class Literal(val value: String) : Token
         data class Path(val path: String) : Token
         data object Dot : Token
+        data class DotField(val name: String) : Token
         data class Variable(val name: String) : Token
         data object Pipe : Token
         data object Open : Token
@@ -99,10 +103,12 @@ object TemplateEvaluator {
                     index++
                 }
 
-                // `$name`, but not the `$.Values.x` form handled just below.
+                // `$name`, but not the `$.Values.x` form handled just below. Any dotted suffix is
+                // part of the name, so `$service.port` is one binding to look up rather than a
+                // variable followed by a field of the current element.
                 char == '$' && !text.startsWith(VALUES, index + 1) -> {
                     var end = index + 1
-                    while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_')) end++
+                    while (end < text.length && isPathChar(text[end])) end++
                     if (end == index + 1) return null
                     tokens += Token.Variable(text.substring(index + 1, end))
                     index = end
@@ -110,12 +116,18 @@ object TemplateEvaluator {
 
                 char == '.' || char == '$' -> {
                     val start = if (char == '$') index + 1 else index
-                    if (!text.startsWith(VALUES, start)) return null
-                    var end = start + VALUES.length
+                    var end = start + 1
                     while (end < text.length && isPathChar(text[end])) end++
-                    val path = text.substring(start + VALUES.length, end)
-                    if (path.isEmpty()) return null
-                    tokens += Token.Path(path)
+
+                    if (text.startsWith(VALUES, start)) {
+                        val path = text.substring(start + VALUES.length, end)
+                        if (path.isEmpty()) return null
+                        tokens += Token.Path(path)
+                    } else {
+                        // `.name`, `.a.b`: a field of the current element inside a range.
+                        if (char == '$') return null
+                        tokens += Token.DotField(text.substring(start + 1, end))
+                    }
                     index = end
                 }
 
@@ -172,6 +184,7 @@ object TemplateEvaluator {
     private class Parser(
         private val tokens: List<Token>,
         private val dot: String?,
+        private val dotFields: Map<String, String>,
         private val variables: Map<String, String>,
         private val resolve: (String) -> String?,
     ) {
@@ -232,6 +245,12 @@ object TemplateEvaluator {
                     position++
                     if (dot == null) failed = true
                     dot?.let { Operand.Value(it) }
+                }
+                is Token.DotField -> {
+                    position++
+                    val field = dotFields[token.name]
+                    if (field == null) failed = true
+                    field?.let { Operand.Value(it) }
                 }
                 is Token.Variable -> {
                     position++

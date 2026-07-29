@@ -5,6 +5,7 @@ import com.intellij.codeInsight.hints.declarative.HintFormat
 import com.intellij.codeInsight.hints.declarative.InlayTreeSink
 import com.intellij.psi.PsiFile
 import dev.morisempai.helmglobals.meta.MetaIndex
+import dev.morisempai.helmglobals.meta.MetaSequence
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.psi.TemplateScanner
 import dev.morisempai.helmglobals.psi.ValuesReference
@@ -37,12 +38,15 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
         for (block in RangeBlocks.findAll(text)) {
             if (!ValuesReference.isUnder(block.path, root)) continue
             val sequence = index.sequenceOf(block.path) ?: continue
-            if (!sequence.allScalars || sequence.items.isEmpty()) continue
+            // Either shape works: a list of scalars used through the dot, or a list of mappings
+            // whose fields the body reaches into. A mixture is not worth guessing at.
+            if (sequence.items.isEmpty()) continue
+            if (!sequence.allScalars && !sequence.allMappings) continue
 
             val body = text.substring(block.body.startOffset, block.body.endOffset)
             if (body.isBlank()) continue
 
-            val rendered = render(body, sequence.items, block) ?: continue
+            val rendered = render(body, sequence, block) ?: continue
             if (rendered.isEmpty()) continue
 
             rendered.forEachIndexed { line, content ->
@@ -61,15 +65,28 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
     }
 
     /** `null` as soon as one expression cannot be rendered, so the preview is all or nothing. */
-    private fun render(body: String, items: List<String>, block: RangeBlock): List<String>? {
+    private fun render(body: String, sequence: MetaSequence, block: RangeBlock): List<String>? {
         val out = ArrayList<String>()
+        val items = sequence.items
 
         for ((position, item) in items.withIndex()) {
+            val fields = sequence.fields.getOrElse(position) { emptyMap() }
             val variables = buildMap {
-                block.elementVariable?.let { put(it, item) }
                 block.indexVariable?.let { put(it, position.toString()) }
+                block.elementVariable?.let { name ->
+                    if (sequence.allScalars) put(name, item)
+                    // `range $service := .Values.services` then `{{ $service.port }}`.
+                    fields.forEach { (field, value) -> put("$name.$field", value) }
+                }
             }
-            val lines = renderBody(body, item, variables) ?: return null
+            val element = Element(
+                // For a mapping element there is no sensible text for a bare `{{ . }}`, so it stays
+                // undecidable rather than rendering the mapping's own source text.
+                dot = item.takeIf { sequence.allScalars },
+                fields = fields,
+                variables = variables,
+            )
+            val lines = renderBody(body, element) ?: return null
 
             for (line in lines) {
                 out += line
@@ -90,7 +107,7 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
      * branches actually taken appear. Blank lines are dropped, since the interesting output is the
      * lines that carry content.
      */
-    private fun renderBody(body: String, item: String, variables: Map<String, String>): List<String>? {
+    private fun renderBody(body: String, element: Element): List<String>? {
         val out = StringBuilder()
         var cursor = 0
         val branches = ArrayDeque<Branch>()
@@ -108,13 +125,13 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
                     // A nested condition inside a branch that is not rendering does not need to be
                     // decided, and often cannot be.
                     val taken = if (!emitting()) false
-                    else condition(expression, item, variables) ?: return null
+                    else condition(expression, element) ?: return null
                     branches.addLast(Branch(emitting = taken, taken = taken))
                 }
                 "else" -> {
                     val branch = branches.lastOrNull() ?: return null
                     val taken = if (ELSE_IF.containsMatchIn(expression)) {
-                        condition(expression, item, variables) ?: return null
+                        condition(expression, element) ?: return null
                     } else {
                         true
                     }
@@ -125,7 +142,7 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
                 // A nested loop, or a `with` rebinding the dot, is more than this preview models.
                 "range", "with", "define", "block" -> return null
                 else -> if (emitting()) {
-                    out.append(evaluate(expression, item, variables) ?: return null)
+                    out.append(evaluate(expression, element) ?: return null)
                 }
             }
         }
@@ -137,11 +154,20 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
 
     private class Branch(var emitting: Boolean, var taken: Boolean)
 
-    private fun evaluate(expression: String, item: String, variables: Map<String, String>): String? =
-        TemplateEvaluator.evaluate(expression, dot = item, variables = variables, resolve = ::resolve)
+    /** What one turn of the loop binds: the dot, the element's fields, and any `$` variables. */
+    private class Element(
+        val dot: String?,
+        val fields: Map<String, String>,
+        val variables: Map<String, String>,
+    )
 
-    private fun condition(expression: String, item: String, variables: Map<String, String>): Boolean? =
-        TemplateEvaluator.condition(expression, dot = item, variables = variables, resolve = ::resolve)
+    private fun evaluate(expression: String, element: Element): String? = TemplateEvaluator.evaluate(
+        expression, element.dot, element.fields, element.variables, ::resolve,
+    )
+
+    private fun condition(expression: String, element: Element): Boolean? = TemplateEvaluator.condition(
+        expression, element.dot, element.fields, element.variables, ::resolve,
+    )
 
     private fun resolve(path: String): String? =
         if (!ValuesReference.isUnder(path, root)) null
