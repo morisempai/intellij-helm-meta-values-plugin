@@ -1,6 +1,6 @@
 # Helm Global Variables
 
-An IntelliJ IDEA 2025.2 (Community Edition) plugin for teams that keep environment-specific
+An IntelliJ IDEA 2025.1–2025.2 (Community Edition) plugin for teams that keep environment-specific
 parameters in one shared *meta values* file and reference them from per-team chart values with Helm
 template syntax:
 
@@ -155,6 +155,15 @@ bare control line you get validation but no Ctrl+Click or hint.
 A values file containing control-flow lines is not valid YAML, so IDEA's bundled YAML parser flags it
 (*"Invalid child element in a block sequence"* and similar) independently of this plugin. Those errors
 come from the YAML support, not from here, and this plugin does not suppress them.
+
+## Compatibility
+
+`since-build 251` / `until-build 252.*` — IntelliJ IDEA 2025.1 and 2025.2, Community or Ultimate.
+
+The plugin is compiled against 2025.1, the oldest supported IDE, so that no newer API can slip in
+unnoticed, and `verifyPlugin` checks the result against both ends of the range (2025.1.3, build
+`251.26927.53`, and 2025.2). Only bundled platform and YAML APIs are used; there is no dependency on
+the commercial Helm support in Ultimate.
 
 ## Building
 

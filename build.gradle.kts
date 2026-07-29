@@ -1,3 +1,4 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 
 plugins {
@@ -19,8 +20,9 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        // IntelliJ IDEA Community 2025.2
-        intellijIdeaCommunity("2025.2")
+        // Compiled against the oldest supported IDE (2025.1) so nothing newer can leak in; the
+        // verifier then checks the result against every branch in the since/until range.
+        intellijIdeaCommunity("2025.1")
 
         // The YAML plugin is bundled with IDEA Community and provides the PSI we hook into.
         bundledPlugin("org.jetbrains.plugins.yaml")
@@ -47,14 +49,17 @@ intellijPlatform {
     pluginConfiguration {
         version = project.version.toString()
         ideaVersion {
-            sinceBuild = "252"
+            sinceBuild = "251"
             untilBuild = "252.*"
         }
     }
 
     pluginVerification {
         ides {
-            recommended()
+            // Both ends of the declared since/until range, so a regression in either is caught.
+            // 2025.1.3 is build 251.26927.53; the verifier resolves releases by version, not build.
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.1.3")
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2")
         }
     }
 }
