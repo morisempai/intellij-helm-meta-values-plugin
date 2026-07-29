@@ -69,6 +69,17 @@
                 level="WARNING"
                 implementationClass="dev.morisempai.helmglobals.inspection.UnresolvedMetaFileInspection"/>
 
+        <localInspection
+                language="yaml"
+                shortName="HelmTemplateSyntax"
+                bundle="messages.HelmGlobalsBundle"
+                key="inspection.template.syntax.display.name"
+                groupPath="YAML"
+                groupName="Helm"
+                enabledByDefault="true"
+                level="ERROR"
+                implementationClass="dev.morisempai.helmglobals.inspection.TemplateSyntaxInspection"/>
+
         <codeInsight.declarativeInlayProvider
                 language="yaml"
                 providerId="helm.globals.resolved.value"

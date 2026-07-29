@@ -16,6 +16,7 @@ import dev.morisempai.helmglobals.directive.HelmGlobalsDirective
 import dev.morisempai.helmglobals.directive.HelmGlobalsDirectives
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.psi.TemplateScanner
+import dev.morisempai.helmglobals.template.TemplateSyntax
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import java.nio.file.FileSystems
 import java.nio.file.InvalidPathException
@@ -28,6 +29,8 @@ object HelmGlobalsSupport {
     private val CONTEXT_KEY = Key.create<CachedValue<Optional>>("helm.globals.context")
 
     private val REGIONS_KEY = Key.create<CachedValue<List<TextRange>>>("helm.globals.template.regions")
+
+    private val PROBLEMS_KEY = Key.create<CachedValue<List<TextRange>>>("helm.globals.template.problems")
 
     private val matcherCache = ConcurrentHashMap<String, PathMatcher>()
 
@@ -61,6 +64,17 @@ object HelmGlobalsSupport {
         val original = file.originalFile
         return CachedValuesManager.getCachedValue(original, REGIONS_KEY) {
             CachedValueProvider.Result.create(TemplateScanner.regions(original.text), original)
+        }
+    }
+
+    /** Ranges of the malformed template expressions in [file]; cached alongside the regions. */
+    fun templateProblemRanges(file: PsiFile): List<TextRange> {
+        val original = file.originalFile
+        return CachedValuesManager.getCachedValue(original, PROBLEMS_KEY) {
+            CachedValueProvider.Result.create(
+                TemplateSyntax.problems(original.text).map { it.range },
+                original,
+            )
         }
     }
 

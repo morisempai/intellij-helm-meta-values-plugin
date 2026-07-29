@@ -20,7 +20,7 @@ The plugin reads the meta file, and then completes, validates and displays those
 | | |
 |---|---|
 | **Completion** | Typing `{{ .Values.global.` offers the keys of the meta file. Mappings are marked with an object icon and a `{n}` child count, and selecting one inserts the dot and re-opens completion so you can walk the tree. Scalars show `= value` in the tail. |
-| **Inspection** | `Unknown Helm global variable` (WARNING) underlines the first segment that does not exist in the meta file, plus a weak warning for using a mapping where a scalar is expected. Two more inspections cover a meta file that cannot be found and — opt-in — a variable missing from some of several meta files. |
+| **Inspection** | `Unknown Helm global variable` (WARNING) underlines the first segment that does not exist in the meta file, plus a weak warning for using a mapping where a scalar is expected. Three more inspections cover malformed expressions, a meta file that cannot be found, and — opt-in — a variable missing from some of several meta files. |
 | **Quick fix** | *Add `global.x.y` to `.helm-globals.yaml`* creates the key — including any missing parent mappings — in the meta file and navigates to it. |
 | **Inline hints** | The value the expression renders is shown after it: `registry: {{ .Values.global.registry }}` `= registry.dev.corp`. A `range` over a list is previewed filled in, over as many lines as it renders. Toggle under Settings \| Editor \| Inlay Hints \| Values, or in the plugin's own settings page. |
 | **Navigation** | Ctrl+Click / Go to Declaration on any segment jumps to the corresponding key in the meta file. Each segment is its own reference, so `global.image` in `global.image.pullPolicy` navigates to the `image` mapping. |
@@ -324,6 +324,30 @@ is dropped rather than guessing at a branch.
   `{{ toYaml .Values.global.image | nindent 2 }}` is accepted. A variable that merely *contains* a
   function name (`global.range`, `global.ifEnabled`) is not mistaken for one.
 
+## Syntax checking
+
+Expressions are checked for breakage no Helm template could recover from, reported as errors:
+
+| | |
+|---|---|
+| `{{ .Values.x` | Unclosed `{{` |
+| `x }}` | `}}` without a matching `{{` |
+| `{{ }}` | Empty expression |
+| `{{ printf "%s" (upper .Values.x }}` | Unbalanced parentheses |
+| `{{ printf "%s .Values.x }}` | Unterminated string |
+| `{{- range … }}` with no `{{- end }}` | `range` is never closed |
+| `{{- end }}` on its own | `end` closes nothing |
+| `{{- else }}` outside a block | `else` outside a conditional or a loop |
+
+Only structure is checked, never meaning. An expression the plugin cannot evaluate is not an
+expression that is wrong: `{{ include "chart.name" . }}`, `{{ .Release.Name }}`,
+`{{ .Values.x | b64enc }}` and your own helpers are all valid and beyond the evaluator, so nothing is
+said about them. An unknown function name is never reported either — it may be a helper defined
+elsewhere.
+
+Where an expression *is* malformed, the YAML errors over it are no longer hidden either: they point
+at the same breakage.
+
 ## Known limitations
 
 **Validation** scans the file's raw text, so it covers every `{{ ... }}` expression, including the
@@ -340,7 +364,8 @@ on it — *Invalid child element in a block mapping* for a `{{- range … }}` li
 plugin hides those: an error is dropped when it overlaps a `{{ … }}` region **and** the file is one
 the plugin analyses. Genuine YAML mistakes elsewhere in the file, and every file the plugin does not
 recognise, are left alone. Turn it off with *Hide YAML errors caused by template expressions* in the
-settings if you would rather see them.
+settings if you would rather see them. Over an expression the plugin reports as malformed nothing is
+hidden, since the YAML error there is about the same breakage.
 
 ## Compatibility
 

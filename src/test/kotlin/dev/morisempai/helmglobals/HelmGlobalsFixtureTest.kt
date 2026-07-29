@@ -6,6 +6,7 @@ import com.intellij.psi.PsiManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.morisempai.helmglobals.doc.HelmGlobalDocumentationHtml
 import dev.morisempai.helmglobals.doc.HelmGlobalsDocumentationTargetProvider
+import dev.morisempai.helmglobals.inspection.TemplateSyntaxInspection
 import dev.morisempai.helmglobals.inspection.UnknownGlobalVariableInspection
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
@@ -336,6 +337,40 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
             """.trimIndent(),
         )
         assertTrue(errors().toString(), errors().isNotEmpty())
+    }
+
+    // ---- template syntax --------------------------------------------------------------------
+
+    fun testMalformedExpressionIsHighlighted() {
+        myFixture.enableInspections(TemplateSyntaxInspection())
+        myFixture.configureByText("values.yaml", "registry: {{ .Values.global.registry")
+        // Survives the filter that hides the YAML support's own errors over template regions.
+        assertTrue(errors().toString(), errors().any { it.contains("Unclosed") })
+    }
+
+    fun testUnclosedRangeIsHighlighted() {
+        myFixture.enableInspections(TemplateSyntaxInspection())
+        myFixture.configureByText("values.yaml", "hosts:\n{{- range .Values.global.registry }}\n  - x\n")
+        assertTrue(errors().any { it.contains("range") && it.contains("never closed") })
+    }
+
+    fun testValidButUnevaluableExpressionsAreNotHighlighted() {
+        myFixture.enableInspections(TemplateSyntaxInspection())
+        myFixture.configureByText(
+            "values.yaml",
+            """
+            name: {{ include "chart.name" . }}
+            release: {{ .Release.Name }}
+            secret: {{ .Values.global.registry | b64enc | quote }}
+            """.trimIndent(),
+        )
+        assertTrue(errors().toString(), errors().isEmpty())
+    }
+
+    fun testSyntaxIsNotCheckedInFilesThePluginDoesNotAnalyse() {
+        myFixture.enableInspections(TemplateSyntaxInspection())
+        myFixture.configureByText("deployment.yaml", "registry: {{ .Values.global.registry")
+        assertTrue(descriptions().none { it.contains("Unclosed") })
     }
 
     // ---- quick fix ------------------------------------------------------------------------

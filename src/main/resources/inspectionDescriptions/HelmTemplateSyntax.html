@@ -1,0 +1,15 @@
+<html>
+<body>
+Reports template expressions that cannot be parsed: an unclosed <code>{{</code>, a stray
+<code>}}</code>, unbalanced parentheses or quotes, an empty expression, and block actions
+(<code>range</code>, <code>if</code>, <code>with</code>, <code>define</code>, <code>block</code>)
+that do not pair up with their <code>end</code>.
+
+<p>
+  Only structure is checked. An expression this plugin cannot evaluate is not an expression that is
+  wrong: <code>include</code>, <code>b64enc</code>, <code>.Release.Name</code> and a chart's own
+  helpers are all valid and beyond the evaluator, so nothing is said about them. An unknown function
+  name is never reported either, since it may be a helper defined elsewhere.
+</p>
+</body>
+</html>
