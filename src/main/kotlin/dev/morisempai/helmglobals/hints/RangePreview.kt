@@ -44,7 +44,12 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
             val rendered = render(body, turns, block) ?: continue
             if (rendered.isEmpty()) continue
 
-            rendered.forEachIndexed { line, content ->
+            // The position indents each hint to the anchor line, so the anchor's own indentation
+            // has to come off the text or the preview drifts right of the block it describes.
+            val anchorIndent = indentOf(text, block.end.startOffset)
+            val aligned = rendered.map { it.dropIndent(anchorIndent) }
+
+            aligned.forEachIndexed { line, content ->
                 sink.addPresentation(
                     // A higher vertical priority sits higher up, so the index is negated for the
                     // preview to read top to bottom in iteration order.
@@ -90,6 +95,15 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
             ?.map { Turn(key = it.key, dot = it.scalar, fields = it.fields) }
     }
 
+    /** Spaces before the line holding [offset], which is what the hint position will re-add. */
+    private fun indentOf(text: String, offset: Int): Int {
+        val lineStart = text.lastIndexOf('\n', (offset - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+        return text.substring(lineStart, offset).takeWhile { it == ' ' }.length
+    }
+
+    private fun String.dropIndent(width: Int): String =
+        drop(minOf(width, takeWhile { it == ' ' }.length))
+
     /** `null` as soon as one expression cannot be rendered, so the preview is all or nothing. */
     private fun render(body: String, turns: List<Turn>, block: RangeBlock): List<String>? {
         val out = ArrayList<String>()
@@ -106,19 +120,24 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
             )
             val lines = renderBody(body, bindings) ?: return null
 
-            for (line in lines) {
-                out += line
-                if (out.size >= MAX_LINES) {
-                    // Rendering the rest only to count their lines is not worth it; say how many
-                    // entries are left instead of how many lines.
-                    val remaining = turns.size - position - 1
-                    if (remaining > 0) out += "… $remaining more entries"
-                    return out
-                }
+            // Whole entries only: a preview cut in the middle of one reads as broken structure
+            // rather than as a preview that stopped.
+            if (out.isNotEmpty() && out.size + lines.size > MAX_LINES) {
+                return out + more(turns.size - position, "entry", "entries")
             }
+            if (lines.size > MAX_LINES) {
+                out += lines.take(MAX_LINES)
+                out += more(lines.size - MAX_LINES, "line", "lines")
+                if (position < turns.size - 1) out += more(turns.size - position - 1, "entry", "entries")
+                return out
+            }
+            out += lines
         }
         return out
     }
+
+    private fun more(count: Int, singular: String, plural: String): String =
+        "… $count more ${if (count == 1) singular else plural}"
 
     /**
      * Renders the loop body for one element, following `if` / `else if` / `else` so that only the

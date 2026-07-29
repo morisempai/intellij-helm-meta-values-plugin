@@ -24,6 +24,12 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
               hosts:
                 - a.dev.corp
                 - b.dev.corp
+              many:
+                - a
+                - b
+                - c
+                - d
+                - e
               labels:
                 zone: eu
                 tier: web
@@ -361,6 +367,62 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
               {{ ${'$'}key }}: {{ ${'$'}value.probe.path }}
             {{- end }}
             /*<# block [  api: /healthz] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    /**
+     * The hint position indents to the anchor line, so the text must not carry that indentation
+     * again: here the anchor `{{- end }}` sits at column 2 and the body at column 4, so the text is
+     * the body minus 2 and lands back at 4 on screen.
+     */
+    fun testPreviewKeepsTheStructureOfAnIndentedRange() {
+        doTestProvider(
+            "values.yaml",
+            """
+            spec:
+              containers:
+              {{- range .Values.global.services }}
+                - name: {{ .name }}
+                  ports:
+                    - containerPort: {{ .port }}
+              /*<# block [  - name: api] #>*/
+              /*<# block [    ports:] #>*/
+              /*<# block [      - containerPort: 8080] #>*/
+              /*<# block [  - name: web] #>*/
+              /*<# block [    ports:] #>*/
+              /*<# block [      - containerPort: 80] #>*/
+              {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    /** Twelve lines fit; the fifth entry would not, so it is dropped whole and counted. */
+    fun testPreviewStopsAtAnEntryBoundary() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.many }}
+              - name: {{ . }}
+                type: host
+                ready: true
+            /*<# block [  - name: a] #>*/
+            /*<# block [    type: host] #>*/
+            /*<# block [    ready: true] #>*/
+            /*<# block [  - name: b] #>*/
+            /*<# block [    type: host] #>*/
+            /*<# block [    ready: true] #>*/
+            /*<# block [  - name: c] #>*/
+            /*<# block [    type: host] #>*/
+            /*<# block [    ready: true] #>*/
+            /*<# block [  - name: d] #>*/
+            /*<# block [    type: host] #>*/
+            /*<# block [    ready: true] #>*/
+            /*<# block [… 1 more entry] #>*/
             {{- end }}
             """.trimIndent(),
             HelmGlobalsInlayProvider(),

@@ -269,7 +269,9 @@ have a probe and drops the rest.
   one the evaluator understands — including every field it reaches for. If any line cannot be
   rendered exactly, the whole preview is dropped rather than shown half-filled.
 - A nested `range`, or a `with` that rebinds the dot, is more than the preview models and drops it.
-- Previews stop after 12 lines and end with `… N more items`.
+- Previews stop after 12 lines, always at an entry boundary, and say how many entries were left out.
+  A preview cut in the middle of an entry would read as broken structure rather than as one that
+  stopped.
 - Lists show as `[n]` in completion, with the item count instead of their flattened text.
 
 ## Conditions
