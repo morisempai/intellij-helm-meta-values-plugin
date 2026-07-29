@@ -35,6 +35,32 @@ object TemplateEvaluator {
         return if (parser.atEnd && !parser.failed) value else null
     }
 
+    /**
+     * Evaluates the condition of an `if` / `else if` expression to whether the branch is taken.
+     * [body] may still carry its keyword and trim markers. `null` when the condition cannot be
+     * worked out, which is not the same as a condition that is false.
+     */
+    fun condition(
+        body: String,
+        dot: String? = null,
+        variables: Map<String, String> = emptyMap(),
+        resolve: (String) -> String?,
+    ): Boolean? {
+        val expression = CONDITION_KEYWORD.replace(body.trim().removePrefix("-").trim(), "")
+        if (expression.isBlank()) return null
+        return evaluate(expression, dot, variables, resolve)?.let(::isTruthy)
+    }
+
+    /**
+     * Go's notion of emptiness: the zero value of the type is false. Values here are the text of a
+     * YAML scalar, so the zero values that can turn up are these.
+     */
+    fun isTruthy(value: String): Boolean = value.trim() !in FALSEY
+
+    private val FALSEY = setOf("", "false", "0", "0.0", "nil", "null", "[]", "{}")
+
+    private val CONDITION_KEYWORD = Regex("""^(?:else\s+)?if\b\s*""")
+
     // ---- tokens --------------------------------------------------------------------------------
 
     private sealed interface Token {
@@ -253,8 +279,44 @@ object TemplateEvaluator {
                 word.replaceFirstChar { it.uppercaseChar() }
             }.takeIf { arguments.size == 1 }
             "trimPrefix" -> if (arguments.size == 2) value!!.removePrefix(leading[0]) else null
+            "not" -> if (arguments.size == 1) (!isTruthy(value!!)).toString() else null
+            "empty" -> if (arguments.size == 1) (!isTruthy(value!!)).toString() else null
+            // Go returns the deciding operand rather than a boolean, and truthiness does the rest.
+            "and" -> arguments.firstOrNull { !isTruthy(it) } ?: value
+            "or" -> arguments.firstOrNull { isTruthy(it) } ?: value
+            // `eq a b c` is true when a equals any of the rest, not when they are all equal.
+            "eq" -> if (arguments.size >= 2) {
+                arguments.drop(1).any { same(arguments[0], it) }.toString()
+            } else null
+            "ne" -> if (arguments.size == 2) (!same(arguments[0], arguments[1])).toString() else null
+            "lt" -> compare(leading, value)?.let { (it < 0).toString() }
+            "le" -> compare(leading, value)?.let { (it <= 0).toString() }
+            "gt" -> compare(leading, value)?.let { (it > 0).toString() }
+            "ge" -> compare(leading, value)?.let { (it >= 0).toString() }
             "trimSuffix" -> if (arguments.size == 2) value!!.removeSuffix(leading[0]) else null
             "replace" -> if (arguments.size == 3) value!!.replace(leading[0], leading[1]) else null
+            else -> null
+        }
+    }
+
+    private fun same(left: String, right: String): Boolean {
+        val leftNumber = left.toDoubleOrNull()
+        val rightNumber = right.toDoubleOrNull()
+        return if (leftNumber != null && rightNumber != null) leftNumber == rightNumber else left == right
+    }
+
+    /**
+     * Orders the single argument against the piped value. Comparison is numeric when both sides are
+     * numbers; mixing a number with a string is a template error in Go, so it gives up instead.
+     */
+    private fun compare(leading: List<String>, value: String?): Int? {
+        if (leading.size != 1 || value == null) return null
+        val left = leading[0]
+        val leftNumber = left.toDoubleOrNull()
+        val rightNumber = value.toDoubleOrNull()
+        return when {
+            leftNumber != null && rightNumber != null -> leftNumber.compareTo(rightNumber)
+            leftNumber == null && rightNumber == null -> left.compareTo(value)
             else -> null
         }
     }

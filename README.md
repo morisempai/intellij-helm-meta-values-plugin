@@ -211,11 +211,48 @@ The assignment forms bind their variables, so `{{ $host }}` and `{{ $i }}` rende
 - The list has to hold scalars, and every expression in the body has to be one the evaluator
   understands. If any line cannot be rendered exactly, the whole preview is dropped rather than
   shown half-filled.
-- A nested `if` or `range` inside the body does not close the loop early, but its own expressions
-  are evaluated as ordinary lines — the preview does not model branching, so a body containing a
-  conditional is usually skipped.
-- Previews stop after 12 lines and end with `… N more`.
+- A nested `range`, or a `with` that rebinds the dot, is more than the preview models and drops it.
+- Previews stop after 12 lines and end with `… N more items`.
 - Lists show as `[n]` in completion, with the item count instead of their flattened text.
+
+## Conditions
+
+An `if` shows whether its branch is taken, given what the meta file says:
+
+```yaml
+{{- if .Values.global.ingressEnabled }}      = true
+{{- if and .Values.global.ingressEnabled (eq .Values.global.scheme "http") }}      = true
+{{- if .Release.IsUpgrade }}
+```
+
+Conditions are evaluated with Go's notion of emptiness — `false`, `0`, `""`, `nil` and an empty
+list or map are false, everything else is true — over `not`, `empty`, `and`, `or`, `eq`, `ne`, `lt`,
+`le`, `gt` and `ge`. Comparisons are numeric when both sides are numbers, and undecided when a
+number is compared with a string, which is an error in Helm anyway.
+
+A condition that cannot be decided, such as the `.Release.IsUpgrade` above, shows nothing. That is
+deliberately distinct from a condition that is false: the plugin only knows the meta file, not the
+release.
+
+Inside a range preview, conditions choose the branches that appear:
+
+```yaml
+{{- range .Values.global.hosts }}
+  - name: {{ . }}
+{{- if .Values.global.ingressEnabled }}
+    ingress: yes
+{{- else }}
+    ingress: no
+{{- end }}
+      - name: a.dev.corp        ← preview, else branch dropped
+        ingress: yes
+      - name: b.dev.corp
+        ingress: yes
+{{- end }}
+```
+
+`else` and `else if` chains are followed. If any condition in the body cannot be decided, the preview
+is dropped rather than guessing at a branch.
 
 ## Supported syntax
 

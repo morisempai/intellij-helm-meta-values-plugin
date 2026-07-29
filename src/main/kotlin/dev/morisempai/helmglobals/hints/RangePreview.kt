@@ -39,12 +39,11 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
             val sequence = index.sequenceOf(block.path) ?: continue
             if (!sequence.allScalars || sequence.items.isEmpty()) continue
 
-            val bodyLines = text.substring(block.body.startOffset, block.body.endOffset)
-                .lines()
-                .filter { it.isNotBlank() }
-            if (bodyLines.isEmpty()) continue
+            val body = text.substring(block.body.startOffset, block.body.endOffset)
+            if (body.isBlank()) continue
 
-            val rendered = render(bodyLines, sequence.items, block) ?: continue
+            val rendered = render(body, sequence.items, block) ?: continue
+            if (rendered.isEmpty()) continue
 
             rendered.forEachIndexed { line, content ->
                 sink.addPresentation(
@@ -62,7 +61,7 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
     }
 
     /** `null` as soon as one expression cannot be rendered, so the preview is all or nothing. */
-    private fun render(bodyLines: List<String>, items: List<String>, block: RangeBlock): List<String>? {
+    private fun render(body: String, items: List<String>, block: RangeBlock): List<String>? {
         val out = ArrayList<String>()
 
         for ((position, item) in items.withIndex()) {
@@ -70,11 +69,15 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
                 block.elementVariable?.let { put(it, item) }
                 block.indexVariable?.let { put(it, position.toString()) }
             }
-            for (line in bodyLines) {
-                out += renderLine(line, item, variables) ?: return null
+            val lines = renderBody(body, item, variables) ?: return null
+
+            for (line in lines) {
+                out += line
                 if (out.size >= MAX_LINES) {
-                    val remaining = items.size * bodyLines.size - out.size
-                    if (remaining > 0) out += "… $remaining more"
+                    // Rendering the remaining items only to count their lines is not worth it; say
+                    // how many items are left instead of how many lines.
+                    val remaining = items.size - position - 1
+                    if (remaining > 0) out += "… $remaining more items"
                     return out
                 }
             }
@@ -82,28 +85,74 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
         return out
     }
 
-    private fun renderLine(line: String, item: String, variables: Map<String, String>): String? {
+    /**
+     * Renders the loop body for one element, following `if` / `else if` / `else` so that only the
+     * branches actually taken appear. Blank lines are dropped, since the interesting output is the
+     * lines that carry content.
+     */
+    private fun renderBody(body: String, item: String, variables: Map<String, String>): List<String>? {
         val out = StringBuilder()
         var cursor = 0
+        val branches = ArrayDeque<Branch>()
+        fun emitting() = branches.all { it.emitting }
 
-        for (region in TemplateScanner.regions(line)) {
-            val body = line.substring(region.startOffset, region.endOffset).removeSurrounding("{{", "}}")
-            val value = TemplateEvaluator.evaluate(body, dot = item, variables = variables) { path ->
-                if (!ValuesReference.isUnder(path, root)) null
-                else MetaValueRendering.singleScalarValue(index.definitionsOf(path))
-            } ?: return null
-
-            out.append(line, cursor, region.startOffset).append(value)
+        for (region in TemplateScanner.regions(body)) {
+            if (emitting()) out.append(body, cursor, region.startOffset)
             cursor = region.endOffset
-        }
 
-        // A body line without any expression repeats verbatim, which is still worth showing.
-        out.append(line, cursor, line.length)
-        return out.toString().trimEnd()
+            val expression = body.substring(region.startOffset, region.endOffset).removeSurrounding("{{", "}}")
+            val keyword = KEYWORD.find(expression)?.groupValues?.get(1)
+
+            when (keyword) {
+                "if" -> {
+                    // A nested condition inside a branch that is not rendering does not need to be
+                    // decided, and often cannot be.
+                    val taken = if (!emitting()) false
+                    else condition(expression, item, variables) ?: return null
+                    branches.addLast(Branch(emitting = taken, taken = taken))
+                }
+                "else" -> {
+                    val branch = branches.lastOrNull() ?: return null
+                    val taken = if (ELSE_IF.containsMatchIn(expression)) {
+                        condition(expression, item, variables) ?: return null
+                    } else {
+                        true
+                    }
+                    branch.emitting = !branch.taken && taken
+                    branch.taken = branch.taken || taken
+                }
+                "end" -> branches.removeLastOrNull() ?: return null
+                // A nested loop, or a `with` rebinding the dot, is more than this preview models.
+                "range", "with", "define", "block" -> return null
+                else -> if (emitting()) {
+                    out.append(evaluate(expression, item, variables) ?: return null)
+                }
+            }
+        }
+        if (emitting()) out.append(body, cursor, body.length)
+        if (branches.isNotEmpty()) return null
+
+        return out.toString().lines().map { it.trimEnd() }.filter { it.isNotBlank() }
     }
+
+    private class Branch(var emitting: Boolean, var taken: Boolean)
+
+    private fun evaluate(expression: String, item: String, variables: Map<String, String>): String? =
+        TemplateEvaluator.evaluate(expression, dot = item, variables = variables, resolve = ::resolve)
+
+    private fun condition(expression: String, item: String, variables: Map<String, String>): Boolean? =
+        TemplateEvaluator.condition(expression, dot = item, variables = variables, resolve = ::resolve)
+
+    private fun resolve(path: String): String? =
+        if (!ValuesReference.isUnder(path, root)) null
+        else MetaValueRendering.singleScalarValue(index.definitionsOf(path))
 
     private companion object {
         /** A long list would bury the file it is meant to explain. */
         const val MAX_LINES = 12
+
+        /** The action a control expression opens or closes, ignoring trim markers. */
+        val KEYWORD = Regex("""^-?\s*(if|else|end|range|with|define|block)\b""")
+        val ELSE_IF = Regex("""^-?\s*else\s+if\b""")
     }
 }

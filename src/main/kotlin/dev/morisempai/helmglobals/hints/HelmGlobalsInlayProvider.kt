@@ -46,30 +46,32 @@ private class ResolvedValueCollector(
      * preview on.
      */
     override fun collectHintsForFile(file: PsiFile, sink: InlayTreeSink) {
-        // A range gets a preview of the whole loop instead of a value hint on its expression. The
-        // test is made on the file text because the YAML parser breaks a range line up differently
-        // depending on its form, and the scalar alone may not show that it is part of one.
+        // A control expression gets its own hint — a preview for a range, the branch taken for an
+        // if — so the plain value hint is suppressed over those regions. The test is made on the
+        // file text because the YAML parser breaks such a line up differently depending on its
+        // form, and the scalar alone may not show that it is part of one.
         val text = file.text
-        val rangeRegions = TemplateScanner.regions(text).filter { region ->
-            RANGE_EXPRESSION.containsMatchIn(
+        val controlRegions = TemplateScanner.regions(text).filter { region ->
+            CONTROL_EXPRESSION.containsMatchIn(
                 text.substring(region.startOffset, region.endOffset).removeSurrounding("{{", "}}")
             )
         }
 
         for (scalar in PsiTreeUtil.findChildrenOfType(file, YAMLScalar::class.java)) {
-            collectFromScalar(scalar, sink, rangeRegions)
+            collectFromScalar(scalar, sink, controlRegions)
         }
+        ConditionHints(index, root).collect(file, sink)
         RangePreview(index, root).collect(file, sink)
     }
 
-    private fun collectFromScalar(element: YAMLScalar, sink: InlayTreeSink, rangeRegions: List<TextRange>) {
+    private fun collectFromScalar(element: YAMLScalar, sink: InlayTreeSink, controlRegions: List<TextRange>) {
         val references = HelmTemplates.referencesIn(element)
         if (references.isEmpty()) return
 
         // One hint per `{{ ... }}` region, even when it mentions several variables.
         for ((_, group) in references.groupBy { it.templateRange }) {
             val anchor = HelmTemplates.templateEndOffset(element, group.first())
-            if (rangeRegions.any { anchor >= it.startOffset && anchor <= it.endOffset }) continue
+            if (controlRegions.any { anchor >= it.startOffset && anchor <= it.endOffset }) continue
 
             // Preferably the value the whole expression renders; only when it cannot be worked out
             // does the hint fall back to listing the variables it mentions.
@@ -128,4 +130,4 @@ private class ResolvedValueCollector(
     }
 }
 
-private val RANGE_EXPRESSION = Regex("""^-?\s*range\b""")
+private val CONTROL_EXPRESSION = Regex("""^-?\s*(range|(else\s+)?if)\b""")

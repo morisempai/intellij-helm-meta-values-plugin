@@ -19,6 +19,8 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
               host: example
               scheme: http
               port: 8080
+              ingressEnabled: true
+              debug: false
               hosts:
                 - a.dev.corp
                 - b.dev.corp
@@ -140,6 +142,79 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
             /*<# block [    name: a.dev.corp] #>*/
             /*<# block [  - id: 1] #>*/
             /*<# block [    name: b.dev.corp] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsWhetherAConditionHolds() {
+        doTestProvider(
+            "values.yaml",
+            "{{- if .Values.global.ingressEnabled }}/*<# = true #>*/",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsAFalseCondition() {
+        doTestProvider(
+            "values.yaml",
+            "{{- if .Values.global.debug }}/*<# = false #>*/",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testEvaluatesCompoundConditions() {
+        doTestProvider(
+            "values.yaml",
+            """{{- if and .Values.global.ingressEnabled (eq .Values.global.scheme "http") }}/*<# = true #>*/""",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsNothingForAConditionItCannotDecide() {
+        doTestProvider(
+            "values.yaml",
+            "{{- if .Release.IsUpgrade }}",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewKeepsOnlyTheBranchesTaken() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.hosts }}
+              - name: {{ . }}
+            {{- if .Values.global.ingressEnabled }}/*<# = true #>*/
+                ingress: yes
+            {{- else }}
+                ingress: no
+            {{- end }}
+            /*<# block [  - name: a.dev.corp] #>*/
+            /*<# block [    ingress: yes] #>*/
+            /*<# block [  - name: b.dev.corp] #>*/
+            /*<# block [    ingress: yes] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewTakesTheElseBranchWhenTheConditionIsFalse() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.hosts }}
+            {{- if .Values.global.debug }}/*<# = false #>*/
+              - debug: {{ . }}
+            {{- else }}
+              - plain: {{ . }}
+            {{- end }}
+            /*<# block [  - plain: a.dev.corp] #>*/
+            /*<# block [  - plain: b.dev.corp] #>*/
             {{- end }}
             """.trimIndent(),
             HelmGlobalsInlayProvider(),
