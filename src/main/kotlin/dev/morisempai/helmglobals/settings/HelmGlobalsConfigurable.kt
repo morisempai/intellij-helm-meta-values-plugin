@@ -60,8 +60,8 @@ class HelmGlobalsConfigurable(private val project: Project) : BoundSearchableCon
         row(HelmGlobalsBundle.message("settings.root.label")) {
             textField()
                 .bindText(
-                    { settings.variableRoot },
-                    { value -> settings.state.variableRoot = value.trim().trimStart('.').ifEmpty { DEFAULT_VARIABLE_ROOT } },
+                    { settings.variableRoot.orEmpty() },
+                    { value -> settings.state.variableRoot = value.trim().trimStart('.') },
                 )
                 .comment(HelmGlobalsBundle.message("settings.root.comment"))
         }

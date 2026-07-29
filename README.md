@@ -62,8 +62,10 @@ it can be committed and shared with the team):
 - **Templated values files** — glob patterns selecting which files are analysed. Empty = the
   defaults `values*.y*ml` and `*values*.y*ml`, anywhere in the project. Patterns are matched against
   both the project-relative path and the bare file name.
-- **Variable root under `.Values`** — defaults to `global`. Only expressions below this path are
-  completed and validated, so ordinary chart values like `{{ .Values.service.port }}` are left alone.
+- **Variable root under `.Values`** — optional, empty by default: every `{{ .Values.* }}` path in the
+  file is completed and validated against the meta file. Set it to narrow the scope — with `global`,
+  only `{{ .Values.global.* }}` is analysed and anything else, such as `{{ .Values.service.port }}`,
+  is left alone.
 - **Show resolved values as inline hints**.
 
 A meta file is never treated as a templated values file itself, and everything is inert when the
@@ -80,15 +82,20 @@ master checkbox is off.
   `{{ toYaml .Values.global.image | nindent 2 }}` is accepted. A variable that merely *contains* a
   function name (`global.range`, `global.ifEnabled`) is not mistaken for one.
 
-## Known limitation
+## Known limitations
 
-Analysis runs on the YAML PSI, so it only sees expressions the YAML parser can recover as a scalar.
-Constructs that break YAML parsing are not analysed:
+**Validation** scans the file's raw text, so it covers every `{{ ... }}` expression, including the
+ones the YAML parser cannot represent — a bare control line such as `{{- if .Values.global.enabled }}`,
+or a template used as a key, `{{ .Values.global.name }}: value`. Expressions inside `#` comments are
+skipped.
 
-- a bare control line at mapping level, e.g. `{{- if .Values.global.enabled }}` on its own line;
-- templates inside YAML *keys*, e.g. `{{ .Values.global.name }}: value`.
+**Completion, navigation, quick documentation and inline hints** are anchored to PSI elements, so
+they work only where the expression sits inside a value the YAML parser recovers as a scalar. On a
+bare control line you get validation but no Ctrl+Click or hint.
 
-These are silently ignored — never falsely reported.
+A values file containing control-flow lines is not valid YAML, so IDEA's bundled YAML parser flags it
+(*"Invalid child element in a block sequence"* and similar) independently of this plugin. Those errors
+come from the YAML support, not from here, and this plugin does not suppress them.
 
 ## Building
 

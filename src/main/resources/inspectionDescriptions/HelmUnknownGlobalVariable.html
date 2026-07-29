@@ -1,7 +1,14 @@
 <html>
 <body>
-Reports <code>{{ .Values.global.* }}</code> expressions in templated Helm values files whose path is
-not defined in the configured meta values file.
+Reports <code>{{ .Values.* }}</code> expressions in templated Helm values files whose path is not
+defined in the configured meta values file. Every expression in the file is checked, including those
+the YAML parser cannot represent, such as a bare <code>{{- if ... }}</code> line or a template used
+as a key; expressions inside comments are skipped.
+
+<p>
+  Setting a <i>variable root</i> narrows this to one branch of the tree — with <code>global</code>,
+  only <code>{{ .Values.global.* }}</code> is checked.
+</p>
 
 <p>Two softer signals are reported as weak warnings:</p>
 <ul>

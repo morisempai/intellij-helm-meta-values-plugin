@@ -6,21 +6,26 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
+import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiTreeUtil
 import dev.morisempai.helmglobals.HelmGlobalsBundle
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValuesService
-import dev.morisempai.helmglobals.psi.HelmTemplates
+import dev.morisempai.helmglobals.psi.TemplateScanner
 import dev.morisempai.helmglobals.psi.ValuesReference
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
-import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
- * Reports `{{ .Values.<root>.* }}` expressions whose path is absent from the meta values file,
- * plus two softer signals: a path that points at a mapping where a scalar is expected, and a path
- * that only some of several configured meta files define.
+ * Reports `{{ .Values.* }}` expressions whose path is absent from the meta values file, plus two
+ * softer signals: a path that points at a mapping where a scalar is expected, and a path that only
+ * some of several configured meta files define.
+ *
+ * Restricted to one branch of the tree when a variable root is configured; by default every
+ * `.Values.*` path is checked.
  *
  * Stays silent when no meta values file resolves, so the inspection never fires in projects that
  * have not opted in.
@@ -40,22 +45,32 @@ class UnknownGlobalVariableInspection : LocalInspectionTool() {
         val metaFiles = service.metaVirtualFiles()
 
         return object : PsiElementVisitor() {
-            override fun visitElement(element: PsiElement) {
-                if (element !is YAMLScalar) return
-                val length = element.textLength
-                for (reference in HelmTemplates.referencesIn(element)) {
+            /**
+             * Validation runs over the file's raw text rather than over its scalars. The YAML parser
+             * cannot represent every Helm construct — a bare `{{- if ... }}` line, or a template
+             * used as a key, never becomes a YAML scalar — but the braces are always there in the
+             * text, so scanning it catches every expression in the file.
+             */
+            override fun visitFile(psiFile: PsiFile) {
+                val text = psiFile.text
+                for (reference in TemplateScanner.scan(text)) {
                     if (!reference.isUnder(root)) continue
-                    if (reference.pathRange.endOffset > length) continue
-                    inspect(holder, isOnTheFly, element, index, reference, metaFiles)
+                    if (reference.pathRange.endOffset > text.length) continue
+                    // Commented-out examples are not errors.
+                    if (isInsideComment(psiFile, reference.pathRange.startOffset)) continue
+                    inspect(holder, isOnTheFly, psiFile, index, reference, metaFiles)
                 }
             }
         }
     }
 
+    private fun isInsideComment(file: PsiFile, offset: Int): Boolean =
+        PsiTreeUtil.getParentOfType(file.findElementAt(offset), PsiComment::class.java, false) != null
+
     private fun inspect(
         holder: ProblemsHolder,
         isOnTheFly: Boolean,
-        host: YAMLScalar,
+        host: PsiElement,
         index: MetaIndex,
         reference: ValuesReference,
         metaFiles: List<VirtualFile>,
@@ -91,7 +106,7 @@ class UnknownGlobalVariableInspection : LocalInspectionTool() {
     private fun reportUnknown(
         holder: ProblemsHolder,
         isOnTheFly: Boolean,
-        host: YAMLScalar,
+        host: PsiElement,
         index: MetaIndex,
         reference: ValuesReference,
         metaFiles: List<VirtualFile>,
@@ -120,7 +135,7 @@ class UnknownGlobalVariableInspection : LocalInspectionTool() {
     private fun register(
         holder: ProblemsHolder,
         isOnTheFly: Boolean,
-        host: YAMLScalar,
+        host: PsiElement,
         rangeInHost: TextRange,
         message: String,
         highlightType: ProblemHighlightType,

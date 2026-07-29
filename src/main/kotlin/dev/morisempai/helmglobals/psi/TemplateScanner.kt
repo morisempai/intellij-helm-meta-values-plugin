@@ -21,7 +21,9 @@ data class ValuesReference(
     /** Cumulative path up to and including segment [index], e.g. `global.image` for index 1. */
     fun pathUpTo(index: Int): String = path.split('.').take(index + 1).joinToString(".")
 
-    fun isUnder(root: String): Boolean = path == root || path.startsWith("$root.")
+    /** A `null` or empty [root] puts every path in scope. */
+    fun isUnder(root: String?): Boolean =
+        root.isNullOrEmpty() || path == root || path.startsWith("$root.")
 
     /**
      * `true` when the enclosing expression consumes the value as a structure rather than as a

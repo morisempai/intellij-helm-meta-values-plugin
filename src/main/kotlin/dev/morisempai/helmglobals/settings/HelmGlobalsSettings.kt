@@ -15,8 +15,11 @@ class HelmGlobalsState : BaseState() {
     /** Globs selecting which files are treated as templated values files. Empty means "use the defaults". */
     val valuesFileGlobs by list<String>()
 
-    /** Path under `.Values` that holds the shared variables, e.g. `global`. */
-    var variableRoot by string(DEFAULT_VARIABLE_ROOT)
+    /**
+     * Path under `.Values` that holds the shared variables, e.g. `global`. Blank — the default —
+     * puts every `.Values.*` path in scope.
+     */
+    var variableRoot by string()
 
     var enabled by property(true)
 
@@ -40,9 +43,9 @@ class HelmGlobalsSettings : SimplePersistentStateComponent<HelmGlobalsState>(Hel
 
     val showInlayValues: Boolean get() = state.showInlayValues
 
-    /** Never blank: falls back to [DEFAULT_VARIABLE_ROOT]. */
-    val variableRoot: String
-        get() = state.variableRoot?.trim()?.trimStart('.')?.takeIf { it.isNotEmpty() } ?: DEFAULT_VARIABLE_ROOT
+    /** `null` when no root is configured, meaning every `.Values.*` path is analysed. */
+    val variableRoot: String?
+        get() = state.variableRoot?.trim()?.trimStart('.')?.takeIf { it.isNotEmpty() }
 
     val metaFilePaths: List<String> get() = state.metaFilePaths.toList()
 
@@ -64,8 +67,6 @@ class HelmGlobalsSettings : SimplePersistentStateComponent<HelmGlobalsState>(Hel
         fun getInstance(project: Project): HelmGlobalsSettings = project.service()
     }
 }
-
-const val DEFAULT_VARIABLE_ROOT: String = "global"
 
 /**
  * Java glob syntax, matched against the project-relative path. `**` does not match zero directories,

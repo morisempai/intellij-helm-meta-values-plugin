@@ -35,7 +35,7 @@ class HelmGlobalsInlayProvider : InlayHintsProvider {
 
 private class ResolvedValueCollector(
     private val index: MetaIndex,
-    private val root: String,
+    private val root: String?,
 ) : SharedBypassCollector {
 
     private val multipleSources = index.sourceNames.size > 1

@@ -82,7 +82,7 @@ object HelmGlobalLookups {
      * Lookup elements for the immediate children of [parentPath], restricted to the branch of the
      * tree that leads to (or lives under) [root].
      */
-    fun childLookups(index: MetaIndex, parentPath: String, root: String): List<LookupElement> {
+    fun childLookups(index: MetaIndex, parentPath: String, root: String?): List<LookupElement> {
         val multipleSources = index.sourceNames.size > 1
         return index.childrenOf(parentPath)
             .map { childName -> if (parentPath.isEmpty()) childName to childName else childName to "$parentPath.$childName" }
@@ -90,9 +90,12 @@ object HelmGlobalLookups {
             .map { (childName, fullPath) -> lookupFor(index, childName, fullPath, multipleSources) }
     }
 
-    /** `true` when [path] is [root], sits below it, or is one of the prefixes leading to it. */
-    private fun isOnRootBranch(path: String, root: String): Boolean =
-        path == root || path.startsWith("$root.") || root.startsWith("$path.")
+    /**
+     * `true` when [path] is [root], sits below it, or is one of the prefixes leading to it.
+     * A `null` or empty [root] accepts the whole tree.
+     */
+    private fun isOnRootBranch(path: String, root: String?): Boolean =
+        root.isNullOrEmpty() || path == root || path.startsWith("$root.") || root.startsWith("$path.")
 
     private fun lookupFor(
         index: MetaIndex,

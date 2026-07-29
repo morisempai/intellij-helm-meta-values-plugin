@@ -115,10 +115,55 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         assertTrue(descriptions().none { it.contains("global.registry") })
     }
 
-    fun testPathsOutsideTheRootAreIgnored() {
+    fun testEveryValuesPathIsCheckedByDefault() {
         myFixture.enableInspections(UnknownGlobalVariableInspection())
-        myFixture.configureByText("values.yaml", "x: {{ .Values.service.port }}")
-        assertTrue(descriptions().none { it.contains("service.port") })
+        myFixture.configureByText("values.yaml", "x: {{ .Values.service.nope }}")
+        assertTrue(descriptions().any { it.contains("service.nope") })
+    }
+
+    fun testPathsOutsideAConfiguredRootAreIgnored() {
+        HelmGlobalsSettings.getInstance(project).state.variableRoot = "global"
+        myFixture.enableInspections(UnknownGlobalVariableInspection())
+        myFixture.configureByText("values.yaml", "x: {{ .Values.service.nope }}")
+        assertTrue(descriptions().none { it.contains("service.nope") })
+    }
+
+    fun testBareControlLineIsChecked() {
+        myFixture.enableInspections(UnknownGlobalVariableInspection())
+        myFixture.configureByText(
+            "values.yaml",
+            """
+            {{- if .Values.global.nope }}
+            registry: {{ .Values.global.registry }}
+            {{- end }}
+            """.trimIndent(),
+        )
+        assertTrue(descriptions().any { it.contains("global.nope") })
+    }
+
+    fun testTemplateInAKeyIsChecked() {
+        myFixture.enableInspections(UnknownGlobalVariableInspection())
+        myFixture.configureByText("values.yaml", "{{ .Values.global.nope }}: 1")
+        assertTrue(descriptions().any { it.contains("global.nope") })
+    }
+
+    fun testCommentedOutTemplateIsNotReported() {
+        myFixture.enableInspections(UnknownGlobalVariableInspection())
+        myFixture.configureByText("values.yaml", "# registry: {{ .Values.global.nope }}")
+        assertTrue(descriptions().none { it.contains("global.nope") })
+    }
+
+    fun testCompletionOffersEveryTopLevelKeyWithoutARoot() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.<caret> }}")
+        assertLookupContains("global", "service")
+    }
+
+    fun testCompletionIsRestrictedToAConfiguredRoot() {
+        HelmGlobalsSettings.getInstance(project).state.variableRoot = "global"
+        myFixture.configureByText("values.yaml", "x: {{ .Values.<caret> }}")
+        val items = myFixture.completeBasic()?.map { it.lookupString }.orEmpty()
+        assertTrue(items.contains("global"))
+        assertFalse(items.contains("service"))
     }
 
     fun testMappingUsedAsAScalarIsReported() {
@@ -194,6 +239,8 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
               image:
                 pullPolicy: IfNotPresent
                 pullSecret: regcred
+            service:
+              port: 8080
         """.trimIndent()
     }
 }
