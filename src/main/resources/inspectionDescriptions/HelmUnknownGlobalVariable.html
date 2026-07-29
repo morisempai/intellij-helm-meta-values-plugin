@@ -1,0 +1,19 @@
+<html>
+<body>
+Reports <code>{{ .Values.global.* }}</code> expressions in templated Helm values files whose path is
+not defined in the configured meta values file.
+
+<p>Two softer signals are reported as weak warnings:</p>
+<ul>
+  <li>the path resolves to a mapping while the expression uses it as a plain value
+      (expressions that consume structures, such as <code>toYaml</code> or <code>range</code>, are ignored);</li>
+  <li>the path is defined in only some of several configured meta values files.</li>
+</ul>
+
+<p>
+  The inspection is inactive until a meta values file resolves. Configure it under
+  <b>Settings | Tools | Helm Global Variables</b>, or place a <code>.helm-globals.yaml</code> file
+  in the project root.
+</p>
+</body>
+</html>

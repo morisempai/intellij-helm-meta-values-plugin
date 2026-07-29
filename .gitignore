@@ -1,0 +1,10 @@
+.gradle/
+build/
+.intellijPlatform/
+.kotlin/
+.idea/
+*.iml
+out/
+
+# Machine-specific local wrapper (user JDK + fontconfig root), not part of the build.
+run-tests.sh

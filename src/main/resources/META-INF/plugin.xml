@@ -1,0 +1,68 @@
+<idea-plugin>
+    <id>dev.morisempai.helmglobals</id>
+    <name>Helm Global Variables</name>
+    <vendor email="alexander.matveev.it@gmail.com">morisempai</vendor>
+
+    <description><![CDATA[
+    Completion, validation and inline display for Helm template expressions used inside
+    <code>values.yaml</code> files.
+    <br/><br/>
+    Teams that keep environment-specific parameters in a shared <em>meta values</em> file and
+    reference them from per-team chart values with <code>{{ .Values.global.* }}</code> get:
+    <ul>
+      <li>code completion for the global variable tree,</li>
+      <li>inspection warnings for variables that are not defined in the meta file,</li>
+      <li>inline hints showing the resolved value,</li>
+      <li>Ctrl+Click navigation and Find Usages between the reference and its definition.</li>
+    </ul>
+    Configure under <b>Settings | Tools | Helm Global Variables</b>, or drop a
+    <code>.helm-globals.yaml</code> file in the project root.
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>org.jetbrains.plugins.yaml</depends>
+
+    <resource-bundle>messages.HelmGlobalsBundle</resource-bundle>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <psi.referenceContributor
+                language="yaml"
+                implementation="dev.morisempai.helmglobals.psi.HelmGlobalReferenceContributor"/>
+
+        <completion.contributor
+                language="yaml"
+                implementationClass="dev.morisempai.helmglobals.completion.HelmGlobalCompletionContributor"/>
+
+        <localInspection
+                language="yaml"
+                shortName="HelmUnknownGlobalVariable"
+                bundle="messages.HelmGlobalsBundle"
+                key="inspection.unknown.global.display.name"
+                groupPath="YAML"
+                groupName="Helm"
+                enabledByDefault="true"
+                level="WARNING"
+                implementationClass="dev.morisempai.helmglobals.inspection.UnknownGlobalVariableInspection"/>
+
+        <codeInsight.declarativeInlayProvider
+                language="yaml"
+                providerId="helm.globals.resolved.value"
+                bundle="messages.HelmGlobalsBundle"
+                nameKey="inlay.provider.name"
+                descriptionKey="inlay.provider.description"
+                group="VALUES_GROUP"
+                isEnabledByDefault="true"
+                implementationClass="dev.morisempai.helmglobals.hints.HelmGlobalsInlayProvider"/>
+
+        <platform.backend.documentation.targetProvider
+                implementation="dev.morisempai.helmglobals.doc.HelmGlobalsDocumentationTargetProvider"/>
+
+        <projectConfigurable
+                parentId="tools"
+                id="dev.morisempai.helmglobals.settings"
+                bundle="messages.HelmGlobalsBundle"
+                key="settings.display.name"
+                instance="dev.morisempai.helmglobals.settings.HelmGlobalsConfigurable"
+                nonDefaultProject="true"/>
+    </extensions>
+</idea-plugin>
