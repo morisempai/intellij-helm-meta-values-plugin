@@ -17,8 +17,6 @@ import com.intellij.util.ProcessingContext
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
-import dev.morisempai.helmglobals.meta.MetaValuesService
-import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 
 class HelmGlobalCompletionContributor : CompletionContributor() {
     init {
@@ -34,10 +32,8 @@ private class HelmGlobalCompletionProvider : CompletionProvider<CompletionParame
         result: CompletionResultSet,
     ) {
         val file = parameters.originalFile
-        if (!HelmGlobalsSupport.isValuesFile(file)) return
-
-        val index = MetaValuesService.getInstance(file.project).index()
-        if (index.isEmpty) return
+        val globals = HelmGlobalsSupport.contextFor(file) ?: return
+        val index = globals.index
 
         // The dummy identifier is inserted at the caret, so everything before `offset` is
         // identical in the copy and in the original file.
@@ -51,8 +47,7 @@ private class HelmGlobalCompletionProvider : CompletionProvider<CompletionParame
         val parentPath = match.groupValues[1].trimEnd('.')
         val alreadyTyped = match.groupValues[2]
 
-        val root = HelmGlobalsSettings.getInstance(file.project).variableRoot
-        val lookups = HelmGlobalLookups.childLookups(index, parentPath, root)
+        val lookups = HelmGlobalLookups.childLookups(index, parentPath, globals.root)
         if (lookups.isEmpty()) return
 
         result.withPrefixMatcher(alreadyTyped).addAllElements(lookups)

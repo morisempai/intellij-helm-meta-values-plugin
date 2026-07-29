@@ -12,7 +12,6 @@ import com.intellij.psi.PsiFile
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
-import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.psi.HelmTemplates
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import org.jetbrains.yaml.psi.YAMLScalar
@@ -24,12 +23,9 @@ import org.jetbrains.yaml.psi.YAMLScalar
 class HelmGlobalsInlayProvider : InlayHintsProvider {
 
     override fun createCollector(file: PsiFile, editor: Editor): InlayHintsCollector? {
-        if (!HelmGlobalsSupport.isValuesFile(file)) return null
-        val settings = HelmGlobalsSettings.getInstance(file.project)
-        if (!settings.showInlayValues) return null
-        val index = MetaValuesService.getInstance(file.project).index()
-        if (index.isEmpty) return null
-        return ResolvedValueCollector(index, settings.variableRoot)
+        val context = HelmGlobalsSupport.contextFor(file) ?: return null
+        if (!HelmGlobalsSettings.getInstance(file.project).showInlayValues) return null
+        return ResolvedValueCollector(context.index, context.root)
     }
 }
 

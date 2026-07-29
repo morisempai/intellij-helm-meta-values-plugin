@@ -16,7 +16,9 @@
       <li>Ctrl+Click navigation and Find Usages between the reference and its definition.</li>
     </ul>
     Configure under <b>Settings | Tools | Helm Global Variables</b>, or drop a
-    <code>.helm-globals.yaml</code> file in the project root.
+    <code>.helm-globals.yaml</code> file in the project root. A single file can name its own meta
+    file with a <code># helm-globals: meta/dev.yaml</code> directive, in the spirit of
+    <code># yaml-language-server</code>.
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -43,6 +45,17 @@
                 enabledByDefault="true"
                 level="WARNING"
                 implementationClass="dev.morisempai.helmglobals.inspection.UnknownGlobalVariableInspection"/>
+
+        <localInspection
+                language="yaml"
+                shortName="HelmUnresolvedMetaFile"
+                bundle="messages.HelmGlobalsBundle"
+                key="inspection.unresolved.meta.file.display.name"
+                groupPath="YAML"
+                groupName="Helm"
+                enabledByDefault="true"
+                level="WARNING"
+                implementationClass="dev.morisempai.helmglobals.inspection.UnresolvedMetaFileInspection"/>
 
         <codeInsight.declarativeInlayProvider
                 language="yaml"

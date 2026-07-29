@@ -11,6 +11,8 @@ import com.intellij.psi.util.CachedValue
 import com.intellij.psi.util.CachedValueProvider
 import com.intellij.psi.util.CachedValuesManager
 import com.intellij.psi.util.PsiModificationTracker
+import dev.morisempai.helmglobals.directive.HelmGlobalsDirective
+import dev.morisempai.helmglobals.directive.HelmGlobalsDirectives
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import java.nio.file.FileSystems
@@ -21,41 +23,72 @@ import java.util.concurrent.ConcurrentHashMap
 
 object HelmGlobalsSupport {
 
-    private val VALUES_FILE_KEY = Key.create<CachedValue<Boolean>>("helm.globals.is.values.file")
+    private val CONTEXT_KEY = Key.create<CachedValue<Optional>>("helm.globals.context")
 
     private val matcherCache = ConcurrentHashMap<String, PathMatcher>()
 
+    /** CachedValue cannot hold `null`, so the "not a values file" answer is wrapped. */
+    private class Optional(val context: HelmGlobalsContext?)
+
     /**
-     * `true` when [file] should be analysed: the plugin is enabled, a non-empty meta values index
-     * exists, and the file matches one of the configured globs without being a meta file itself.
+     * The analysis context for [file], or `null` when it should be left alone: the plugin is off,
+     * the file is a meta file itself, no meta values resolve, or the file neither matches a
+     * configured glob nor carries a `# helm-globals:` directive.
      *
      * Completion runs against a copy of the file which has no [VirtualFile], hence the use of
      * [PsiFile.getOriginalFile].
      */
-    fun isValuesFile(file: PsiFile): Boolean {
+    fun contextFor(file: PsiFile): HelmGlobalsContext? {
         val original = file.originalFile
-        return CachedValuesManager.getCachedValue(original, VALUES_FILE_KEY) {
+        return CachedValuesManager.getCachedValue(original, CONTEXT_KEY) {
             CachedValueProvider.Result.create(
-                computeIsValuesFile(original),
+                Optional(computeContext(original)),
                 PsiModificationTracker.MODIFICATION_COUNT,
                 VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS,
                 HelmGlobalsSettings.getInstance(original.project).state,
             )
-        }
+        }.context
     }
 
-    private fun computeIsValuesFile(file: PsiFile): Boolean {
+    fun isValuesFile(file: PsiFile): Boolean = contextFor(file) != null
+
+    /** The directive written in [file], regardless of whether the file is otherwise analysed. */
+    fun directiveOf(file: PsiFile): HelmGlobalsDirective? =
+        HelmGlobalsDirectives.of(file.originalFile.text)
+
+    private fun computeContext(file: PsiFile): HelmGlobalsContext? {
         val project = file.project
         val settings = HelmGlobalsSettings.getInstance(project)
-        if (!settings.isEnabled) return false
+        if (!settings.isEnabled) return null
 
-        val virtualFile = file.virtualFile ?: return false
+        val virtualFile = file.virtualFile ?: return null
 
-        val metaService = MetaValuesService.getInstance(project)
-        if (virtualFile in metaService.metaVirtualFiles()) return false
-        if (metaService.index().isEmpty) return false
+        val service = MetaValuesService.getInstance(project)
+        val directive = directiveOf(file)
 
-        return matchesAnyGlob(project, virtualFile, settings.valuesFileGlobs)
+        // A directive is an explicit opt-in: it selects the meta files and makes this a values file
+        // whatever the globs say.
+        val metaFiles = if (directive != null && directive.metaPaths.isNotEmpty()) {
+            directive.metaPaths.mapNotNull { service.resolvePath(it.text, virtualFile) }.distinct()
+        } else {
+            service.metaVirtualFiles()
+        }
+
+        if (virtualFile in metaFiles) return null
+        if (directive == null && !matchesAnyGlob(project, virtualFile, settings.valuesFileGlobs)) return null
+
+        val index = service.indexOf(metaFiles)
+        if (index.isEmpty) return null
+
+        // `$root=` with nothing after it deliberately means "no root": analyse every path.
+        val declaredRoot = directive?.root
+        val root = if (declaredRoot != null) {
+            declaredRoot.text.trim().trimStart('.').takeIf(String::isNotEmpty)
+        } else {
+            settings.variableRoot
+        }
+
+        return HelmGlobalsContext(index, root, metaFiles)
     }
 
     private fun matchesAnyGlob(project: Project, file: VirtualFile, globs: List<String>): Boolean {

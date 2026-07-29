@@ -16,7 +16,6 @@ import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.psi.HelmTemplates
-import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
@@ -26,13 +25,13 @@ import org.jetbrains.yaml.psi.YAMLScalar
 class HelmGlobalsDocumentationTargetProvider : DocumentationTargetProvider {
 
     override fun documentationTargets(file: PsiFile, offset: Int): List<DocumentationTarget> {
-        if (!HelmGlobalsSupport.isValuesFile(file)) return emptyList()
+        val context = HelmGlobalsSupport.contextFor(file) ?: return emptyList()
 
         val leaf = file.findElementAt(offset) ?: return emptyList()
         val scalar = PsiTreeUtil.getParentOfType(leaf, YAMLScalar::class.java, false) ?: return emptyList()
 
         val project = file.project
-        val root = HelmGlobalsSettings.getInstance(project).variableRoot
+        val root = context.root
         val localOffset = offset - scalar.textRange.startOffset
 
         val reference = HelmTemplates.referencesIn(scalar)
@@ -42,7 +41,7 @@ class HelmGlobalsDocumentationTargetProvider : DocumentationTargetProvider {
         val segmentIndex = reference.segmentRanges.indexOfFirst { it.containsOffset(localOffset) }
         val path = if (segmentIndex >= 0) reference.pathUpTo(segmentIndex) else reference.path
 
-        if (!MetaValuesService.getInstance(project).index().contains(path)) return emptyList()
+        if (!context.index.contains(path)) return emptyList()
         return listOf(HelmGlobalDocumentationTarget(project, path))
     }
 }

@@ -8,7 +8,6 @@ import com.intellij.psi.PsiReferenceProvider
 import com.intellij.psi.PsiReferenceRegistrar
 import com.intellij.util.ProcessingContext
 import dev.morisempai.helmglobals.HelmGlobalsSupport
-import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import org.jetbrains.yaml.psi.YAMLScalar
 
 class HelmGlobalReferenceContributor : PsiReferenceContributor() {
@@ -28,9 +27,7 @@ private class HelmGlobalReferenceProvider : PsiReferenceProvider() {
         if (element !is YAMLScalar) return PsiReference.EMPTY_ARRAY
 
         val file = element.containingFile ?: return PsiReference.EMPTY_ARRAY
-        if (!HelmGlobalsSupport.isValuesFile(file)) return PsiReference.EMPTY_ARRAY
-
-        val root = HelmGlobalsSettings.getInstance(element.project).variableRoot
+        val root = (HelmGlobalsSupport.contextFor(file) ?: return PsiReference.EMPTY_ARRAY).root
         val text = element.text
         val occurrences = HelmTemplates.referencesIn(element)
         if (occurrences.isEmpty()) return PsiReference.EMPTY_ARRAY

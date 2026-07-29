@@ -14,10 +14,8 @@ import com.intellij.psi.util.PsiTreeUtil
 import dev.morisempai.helmglobals.HelmGlobalsBundle
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
-import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.psi.TemplateScanner
 import dev.morisempai.helmglobals.psi.ValuesReference
-import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 
 /**
  * Reports `{{ .Values.* }}` expressions whose path is absent from the meta values file, plus two
@@ -33,16 +31,10 @@ import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 class UnknownGlobalVariableInspection : LocalInspectionTool() {
 
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
-        val file = holder.file
-        if (!HelmGlobalsSupport.isValuesFile(file)) return PsiElementVisitor.EMPTY_VISITOR
-
-        val project = file.project
-        val service = MetaValuesService.getInstance(project)
-        val index = service.index()
-        if (index.isEmpty) return PsiElementVisitor.EMPTY_VISITOR
-
-        val root = HelmGlobalsSettings.getInstance(project).variableRoot
-        val metaFiles = service.metaVirtualFiles()
+        val context = HelmGlobalsSupport.contextFor(holder.file) ?: return PsiElementVisitor.EMPTY_VISITOR
+        val index = context.index
+        val root = context.root
+        val metaFiles = context.metaFiles
 
         return object : PsiElementVisitor() {
             /**

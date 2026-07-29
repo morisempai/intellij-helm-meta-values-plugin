@@ -72,12 +72,44 @@ global:
 
 **Discovery by convention.** With nothing configured, the plugin looks in the project root and in
 every content root for, in order: `.helm-globals.yaml`, `.helm-globals.yml`, `helm-globals.yaml`,
-`helm-globals.yml`.
+`helm-globals.yml`. An individual file can override this with a directive comment — see
+[Pointing a file at its meta file](#pointing-a-file-at-its-meta-file).
 
 **Multiple meta files.** You can configure several (e.g. one per environment). Completion shows the
 union of their keys; documentation shows each file's value side by side; a variable defined in only
 some of them gets a weak warning. This is the intended way to spot a variable you added to `dev` but
 forgot in `prod`.
+
+## Pointing a file at its meta file
+
+A values file can name its own meta file with a directive comment, the way
+`# yaml-language-server: $schema=…` attaches a JSON schema:
+
+```yaml
+# helm-globals: meta/dev.yaml
+registry: {{ .Values.global.registry }}
+```
+
+The directive **replaces** whatever the settings configure, for that file only, and it **opts the
+file in**: a file carrying a directive is analysed even when it does not match any of the configured
+globs, so `overrides.yaml` or `foo.tpl.yaml` work without touching the settings.
+
+Long form, with several meta files and an explicit variable root:
+
+```yaml
+# helm-globals: $meta=meta/dev.yaml $meta=meta/shared.yaml $root=global
+```
+
+- A bare token is a meta file path; `$meta=` says the same thing explicitly. Separate tokens with
+  spaces or commas.
+- Several paths are merged, exactly like several configured meta files: completion shows the union,
+  and a variable missing from one of them is reported.
+- Paths resolve relative to the file's own directory first — as with `# yaml-language-server` — then
+  to the project root and the content roots. Absolute paths work too.
+- `$root=global` narrows the scope for this file; a bare `$root=` widens it back to every
+  `.Values.*` path, overriding the setting.
+- A path that does not resolve is reported by the *Unresolved Helm meta values file* inspection,
+  rather than silently leaving the file with no variables.
 
 ## Settings
 

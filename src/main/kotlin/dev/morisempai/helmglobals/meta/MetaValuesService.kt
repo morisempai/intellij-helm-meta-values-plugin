@@ -25,6 +25,7 @@ import org.jetbrains.yaml.psi.YAMLSequence
 import org.jetbrains.yaml.psi.YAMLValue
 import java.nio.file.InvalidPathException
 import java.nio.file.Paths
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Loads the configured meta values file(s) and exposes them as a flat, cached path index.
@@ -39,6 +40,47 @@ class MetaValuesService(private val project: Project) {
 
     /** Virtual files the index was built from; useful to exclude them from analysis. */
     fun metaVirtualFiles(): List<VirtualFile> = cached().files
+
+    /**
+     * Index over an explicit set of meta files, as named by a `# helm-globals:` directive.
+     * Memoised per file set, so many values files pointing at the same meta file share one index.
+     */
+    fun indexOf(files: List<VirtualFile>): MetaIndex {
+        if (files.isEmpty()) return MetaIndex.EMPTY
+        if (files == cached().files) return cached().index
+        return byFileSet().getOrPut(files.map { it.url }) { buildIndex(files) }
+    }
+
+    /**
+     * Resolves a path written in a directive: absolute, or relative to [near]'s own directory first
+     * — as in `# yaml-language-server` — then to the project root and the content roots.
+     */
+    fun resolvePath(path: String, near: VirtualFile?): VirtualFile? {
+        val trimmed = path.trim()
+        if (trimmed.isEmpty()) return null
+        val nioPath = try {
+            Paths.get(trimmed)
+        } catch (_: InvalidPathException) {
+            return null
+        }
+        if (nioPath.isAbsolute) return LocalFileSystem.getInstance().findFileByNioFile(nioPath)
+        val roots = buildList {
+            near?.parent?.let { add(it) }
+            addAll(searchRoots())
+        }
+        return roots.firstNotNullOfOrNull { it.findFileByRelativePath(trimmed) }
+            ?.takeIf { it.isValid && !it.isDirectory }
+    }
+
+    private fun byFileSet(): MutableMap<List<String>, MetaIndex> =
+        CachedValuesManager.getManager(project).getCachedValue(project, BY_FILE_SET_KEY, {
+            CachedValueProvider.Result.create(
+                ConcurrentHashMap<List<String>, MetaIndex>(),
+                PsiModificationTracker.MODIFICATION_COUNT,
+                VirtualFileManager.VFS_STRUCTURE_MODIFICATIONS,
+                HelmGlobalsSettings.getInstance(project).state,
+            )
+        }, false)
 
     fun metaYamlFiles(): List<YAMLFile> {
         val psiManager = PsiManager.getInstance(project)
@@ -80,22 +122,17 @@ class MetaValuesService(private val project: Project) {
             return null
         }
         if (nioPath.isAbsolute) return LocalFileSystem.getInstance().findFileByNioFile(nioPath)
-        val roots = buildList {
-            project.guessProjectDir()?.let { add(it) }
-            addAll(ProjectRootManager.getInstance(project).contentRoots)
-        }
-        return roots.firstNotNullOfOrNull { it.findFileByRelativePath(path) }
+        return searchRoots().firstNotNullOfOrNull { it.findFileByRelativePath(path) }
     }
 
-    private fun conventionFiles(): List<VirtualFile> {
-        val roots = buildList {
-            project.guessProjectDir()?.let { add(it) }
-            addAll(ProjectRootManager.getInstance(project).contentRoots)
-        }.distinct()
-        return roots.flatMap { root ->
-            CONVENTION_META_FILE_NAMES.mapNotNull { name -> root.findChild(name) }
-        }
+    private fun conventionFiles(): List<VirtualFile> = searchRoots().flatMap { root ->
+        CONVENTION_META_FILE_NAMES.mapNotNull { name -> root.findChild(name) }
     }
+
+    private fun searchRoots(): List<VirtualFile> = buildList {
+        project.guessProjectDir()?.let { add(it) }
+        addAll(ProjectRootManager.getInstance(project).contentRoots)
+    }.distinct()
 
     private fun buildIndex(files: List<VirtualFile>): MetaIndex {
         if (files.isEmpty()) return MetaIndex.EMPTY
@@ -162,6 +199,8 @@ class MetaValuesService(private val project: Project) {
     companion object {
         private const val MAX_DEPTH = 32
         private val CACHE_KEY = Key.create<CachedValue<Snapshot>>("helm.globals.meta.index")
+        private val BY_FILE_SET_KEY =
+            Key.create<CachedValue<MutableMap<List<String>, MetaIndex>>>("helm.globals.meta.index.by.file.set")
 
         fun getInstance(project: Project): MetaValuesService = project.service()
     }
