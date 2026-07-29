@@ -69,6 +69,50 @@ class TemplateSyntaxTest {
         assertEquals(listOf(TemplateProblemKind.UNEXPECTED_ELSE), kinds("a: b\n{{- else }}"))
     }
 
+    @Test
+    fun `a pipe with nothing on one side is reported`() {
+        assertEquals(listOf(TemplateProblemKind.EMPTY_PIPELINE_STAGE), kinds("a: {{ .Values.x | }}"))
+        assertEquals(listOf(TemplateProblemKind.EMPTY_PIPELINE_STAGE), kinds("a: {{ | quote }}"))
+        assertEquals(listOf(TemplateProblemKind.EMPTY_PIPELINE_STAGE), kinds("a: {{ .Values.x || quote }}"))
+        assertEquals(
+            listOf(TemplateProblemKind.EMPTY_PIPELINE_STAGE),
+            kinds("a: {{ .Values.x | default (.Values.y | ) }}"),
+        )
+    }
+
+    @Test
+    fun `an assignment with no value is reported`() {
+        assertEquals(
+            listOf(TemplateProblemKind.MISSING_ASSIGNED_VALUE),
+            kinds("""{{- ${'$'}name := }}"""),
+        )
+    }
+
+    @Test
+    fun `a block keyword with nothing to act on is reported`() {
+        for (keyword in listOf("if", "range", "with")) {
+            val problems = TemplateSyntax.problems("a: {{ $keyword }}b{{ end }}")
+            assertEquals(keyword, listOf(TemplateProblemKind.MISSING_ARGUMENT), problems.map { it.kind })
+            assertEquals(keyword, problems.single().keyword)
+        }
+        assertEquals(
+            listOf(TemplateProblemKind.MISSING_ARGUMENT),
+            kinds("{{- if .Values.x }}a{{- else if }}b{{- end }}"),
+        )
+    }
+
+    @Test
+    fun `a keyword that takes no arguments is reported when given one`() {
+        assertEquals(
+            listOf(TemplateProblemKind.UNEXPECTED_ARGUMENT),
+            kinds("{{- range .Values.hosts }}a{{- end .Values.hosts }}"),
+        )
+        assertEquals(
+            listOf(TemplateProblemKind.UNEXPECTED_ARGUMENT),
+            kinds("{{- if .Values.x }}a{{- else .Values.y }}b{{- end }}"),
+        )
+    }
+
     // ---- what must stay quiet ----------------------------------------------------------------
 
     @Test
@@ -111,5 +155,21 @@ class TemplateSyntaxTest {
     fun `braces inside a string do not end the expression early`() {
         // The closing `}}` of the expression is the real one, so nothing is reported.
         assertTrue(kinds("""a: {{ .Values.x | default "{}" }}""").isEmpty())
+    }
+
+    @Test
+    fun `pipes and quotes inside strings are not read as syntax`() {
+        assertTrue(kinds("""a: {{ .Values.x | replace "|" "," }}""").isEmpty())
+        assertTrue(kinds("""a: {{ printf "it's here" }}""").isEmpty())
+        assertTrue(kinds("""a: {{ printf "%s=" .Values.x }}""").isEmpty())
+    }
+
+    /** A comment runs to its own closing marker, and anything at all may sit inside it. */
+    @Test
+    fun `a comment is not checked`() {
+        assertTrue(kinds("{{/* a stray ) and a lone ' and a | */}}").isEmpty())
+        assertTrue(kinds("{{- /* trimmed */ -}}").isEmpty())
+        assertTrue(kinds("{{/* the closing }} of nothing */}}\na: b").isEmpty())
+        assertEquals(listOf(TemplateProblemKind.UNCLOSED), kinds("{{/* never closed"))
     }
 }

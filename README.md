@@ -335,9 +335,15 @@ Expressions are checked for breakage no Helm template could recover from, report
 | `{{ }}` | Empty expression |
 | `{{ printf "%s" (upper .Values.x }}` | Unbalanced parentheses |
 | `{{ printf "%s .Values.x }}` | Unterminated string |
+| `{{ .Values.x \| }}`, `{{ \| quote }}` | `\|` with nothing to pipe |
+| `{{ $name := }}` | Assignment with no value |
+| `{{ if }}`, `{{ range }}`, `{{ else if }}` | Nothing to act on |
+| `{{ end .Values.x }}`, `{{ else foo }}` | Takes no arguments |
 | `{{- range … }}` with no `{{- end }}` | `range` is never closed |
 | `{{- end }}` on its own | `end` closes nothing |
 | `{{- else }}` outside a block | `else` outside a conditional or a loop |
+
+Comments are skipped whole: anything at all may sit inside `{{/* … */}}`.
 
 Only structure is checked, never meaning. An expression the plugin cannot evaluate is not an
 expression that is wrong: `{{ include "chart.name" . }}`, `{{ .Release.Name }}`,

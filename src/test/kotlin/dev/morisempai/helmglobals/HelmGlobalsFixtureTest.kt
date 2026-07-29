@@ -1,6 +1,7 @@
 package dev.morisempai.helmglobals
 
 import com.intellij.codeInsight.lookup.LookupElementPresentation
+import com.intellij.codeInspection.LocalInspectionEP
 import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.psi.PsiManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
@@ -354,6 +355,18 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         assertTrue(errors().any { it.contains("range") && it.contains("never closed") })
     }
 
+    fun testAnEmptyPipelineStageIsHighlighted() {
+        myFixture.enableInspections(TemplateSyntaxInspection())
+        myFixture.configureByText("values.yaml", "registry: {{ .Values.global.registry | }}")
+        assertTrue(errors().toString(), errors().any { it.contains("nothing to pipe") })
+    }
+
+    fun testABlockKeywordWithoutAnArgumentIsHighlighted() {
+        myFixture.enableInspections(TemplateSyntaxInspection())
+        myFixture.configureByText("values.yaml", "a: {{ if }}b{{ end }}")
+        assertTrue(errors().toString(), errors().any { it.contains("needs something to act on") })
+    }
+
     fun testValidButUnevaluableExpressionsAreNotHighlighted() {
         myFixture.enableInspections(TemplateSyntaxInspection())
         myFixture.configureByText(
@@ -365,6 +378,24 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
             """.trimIndent(),
         )
         assertTrue(errors().toString(), errors().isEmpty())
+    }
+
+    /**
+     * The tests above instantiate the tool directly, which says nothing about whether the IDE ever
+     * runs it. This checks the registration a real IDE reads: a wrong class name, a missing bundle
+     * key or a bad severity would leave the inspection out of every profile, and the plugin would be
+     * silent in the editor while every test still passed.
+     */
+    fun testTheSyntaxInspectionIsRegisteredAndOnByDefault() {
+        val registered = LocalInspectionEP.LOCAL_INSPECTION.extensionList
+            .filter { it.shortName == "HelmTemplateSyntax" }
+        assertSize(1, registered)
+
+        val ep = registered.single()
+        assertTrue("not enabled by default", ep.enabledByDefault)
+        assertEquals("ERROR", ep.level)
+        assertEquals("Malformed Helm template expression", ep.getDisplayName())
+        assertTrue(ep.instantiateTool() is TemplateSyntaxInspection)
     }
 
     fun testSyntaxIsNotCheckedInFilesThePluginDoesNotAnalyse() {

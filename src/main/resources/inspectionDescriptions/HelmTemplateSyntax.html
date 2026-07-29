@@ -1,9 +1,16 @@
 <html>
 <body>
-Reports template expressions that cannot be parsed: an unclosed <code>{{</code>, a stray
-<code>}}</code>, unbalanced parentheses or quotes, an empty expression, and block actions
-(<code>range</code>, <code>if</code>, <code>with</code>, <code>define</code>, <code>block</code>)
-that do not pair up with their <code>end</code>.
+Reports template expressions that cannot be parsed:
+<ul>
+  <li>an unclosed <code>{{</code>, or a stray <code>}}</code>;</li>
+  <li>an empty expression, unbalanced parentheses, an unterminated string;</li>
+  <li>a <code>|</code> with nothing on one side of it, as in <code>{{ .Values.host | }}</code>;</li>
+  <li>an assignment with no value, as in <code>{{ $name := }}</code>;</li>
+  <li><code>if</code>, <code>range</code>, <code>with</code>, <code>define</code> or
+    <code>block</code> with nothing to act on, and <code>end</code> or a plain <code>else</code>
+    given an argument;</li>
+  <li>a block action that does not pair up with its <code>end</code>.</li>
+</ul>
 
 <p>
   Only structure is checked. An expression this plugin cannot evaluate is not an expression that is

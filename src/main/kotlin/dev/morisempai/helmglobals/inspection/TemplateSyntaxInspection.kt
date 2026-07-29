@@ -53,5 +53,13 @@ class TemplateSyntaxInspection : LocalInspectionTool() {
         TemplateProblemKind.UNEXPECTED_ELSE -> HelmGlobalsBundle.message("inspection.template.unexpected.else")
         TemplateProblemKind.MISSING_END ->
             HelmGlobalsBundle.message("inspection.template.missing.end", problem.keyword)
+        TemplateProblemKind.EMPTY_PIPELINE_STAGE ->
+            HelmGlobalsBundle.message("inspection.template.empty.pipeline.stage")
+        TemplateProblemKind.MISSING_ASSIGNED_VALUE ->
+            HelmGlobalsBundle.message("inspection.template.missing.assigned.value")
+        TemplateProblemKind.MISSING_ARGUMENT ->
+            HelmGlobalsBundle.message("inspection.template.missing.argument", problem.keyword)
+        TemplateProblemKind.UNEXPECTED_ARGUMENT ->
+            HelmGlobalsBundle.message("inspection.template.unexpected.argument", problem.keyword)
     }
 }

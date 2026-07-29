@@ -51,9 +51,9 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
 
             aligned.forEachIndexed { line, content ->
                 sink.addPresentation(
-                    // A higher vertical priority sits higher up, so the index is negated for the
-                    // preview to read top to bottom in iteration order.
-                    position = AboveLineIndentedPosition(block.end.startOffset, -line, 0),
+                    // The editor stacks the inlays above a line in ascending priority order, so the
+                    // line index is the priority: line 0 is furthest from the anchor, at the top.
+                    position = AboveLineIndentedPosition(block.end.startOffset, line, 0),
                     payloads = null,
                     tooltip = "${block.path}: ${turns.size} entries",
                     hintFormat = HintFormat.default,

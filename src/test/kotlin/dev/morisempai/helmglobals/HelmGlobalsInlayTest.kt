@@ -1,5 +1,9 @@
 package dev.morisempai.helmglobals
 
+import com.intellij.codeInsight.hints.declarative.impl.InlayPresentationEntry
+import com.intellij.codeInsight.hints.declarative.impl.InlayPresentationList
+import com.intellij.codeInsight.hints.declarative.impl.TextInlayPresentationEntry
+import com.intellij.codeInsight.hints.declarative.impl.inlayRenderer.DeclarativeInlayRendererBase
 import com.intellij.testFramework.utils.inlays.declarative.DeclarativeInlayHintsProviderTestCase
 import dev.morisempai.helmglobals.hints.HelmGlobalsInlayProvider
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
@@ -122,254 +126,207 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
         )
     }
 
+    // ---- range previews ----------------------------------------------------------------------
+    //
+    // These assert the order the editor paints, not the order `doTestProvider` dumps: the dump reads
+    // `getBlockElementsInRange`, which sorts block inlays by descending priority, while the painter
+    // reads `getBlockElementsForVisualLine`, which sorts the ones above a line by ascending
+    // priority. The two are exact opposites, so a dump can pass while the preview reads bottom-up.
+
     fun testPreviewsARangeOverAList() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.hosts }}
-              - {{ . }}
-            /*<# block [  - a.dev.corp] #>*/
-            /*<# block [  - b.dev.corp] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - a.dev.corp", "  - b.dev.corp"),
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.hosts }}
+                  - {{ . }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testAppliesTheLoopBodyToEachElement() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.hosts }}
-              - host: {{ . | quote }}
-                port: {{ .Values.global.port }}/*<# = 8080 #>*/
-            /*<# block [  - host: "a.dev.corp"] #>*/
-            /*<# block [    port: 8080] #>*/
-            /*<# block [  - host: "b.dev.corp"] #>*/
-            /*<# block [    port: 8080] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("""  - host: "a.dev.corp"""", "    port: 8080", """  - host: "b.dev.corp"""", "    port: 8080"),
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.hosts }}
+                  - host: {{ . | quote }}
+                    port: {{ .Values.global.port }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewsARangeUsingAssignedVariables() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range ${'$'}i, ${'$'}host := .Values.global.hosts }}
-              - id: {{ ${'$'}i }}
-                name: {{ ${'$'}host }}
-            /*<# block [  - id: 0] #>*/
-            /*<# block [    name: a.dev.corp] #>*/
-            /*<# block [  - id: 1] #>*/
-            /*<# block [    name: b.dev.corp] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
-        )
-    }
-
-    fun testShowsWhetherAConditionHolds() {
-        doTestProvider(
-            "values.yaml",
-            "{{- if .Values.global.ingressEnabled }}/*<# = true #>*/",
-            HelmGlobalsInlayProvider(),
-        )
-    }
-
-    fun testShowsAFalseCondition() {
-        doTestProvider(
-            "values.yaml",
-            "{{- if .Values.global.debug }}/*<# = false #>*/",
-            HelmGlobalsInlayProvider(),
-        )
-    }
-
-    fun testEvaluatesCompoundConditions() {
-        doTestProvider(
-            "values.yaml",
-            """{{- if and .Values.global.ingressEnabled (eq .Values.global.scheme "http") }}/*<# = true #>*/""",
-            HelmGlobalsInlayProvider(),
-        )
-    }
-
-    fun testShowsNothingForAConditionItCannotDecide() {
-        doTestProvider(
-            "values.yaml",
-            "{{- if .Release.IsUpgrade }}",
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - id: 0", "    name: a.dev.corp", "  - id: 1", "    name: b.dev.corp"),
+            previewOf(
+                """
+                hosts:
+                {{- range ${'$'}i, ${'$'}host := .Values.global.hosts }}
+                  - id: {{ ${'$'}i }}
+                    name: {{ ${'$'}host }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewKeepsOnlyTheBranchesTaken() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.hosts }}
-              - name: {{ . }}
-            {{- if .Values.global.ingressEnabled }}/*<# = true #>*/
-                ingress: yes
-            {{- else }}
-                ingress: no
-            {{- end }}
-            /*<# block [  - name: a.dev.corp] #>*/
-            /*<# block [    ingress: yes] #>*/
-            /*<# block [  - name: b.dev.corp] #>*/
-            /*<# block [    ingress: yes] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - name: a.dev.corp", "    ingress: yes", "  - name: b.dev.corp", "    ingress: yes"),
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.hosts }}
+                  - name: {{ . }}
+                {{- if .Values.global.ingressEnabled }}
+                    ingress: yes
+                {{- else }}
+                    ingress: no
+                {{- end }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewTakesTheElseBranchWhenTheConditionIsFalse() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.hosts }}
-            {{- if .Values.global.debug }}/*<# = false #>*/
-              - debug: {{ . }}
-            {{- else }}
-              - plain: {{ . }}
-            {{- end }}
-            /*<# block [  - plain: a.dev.corp] #>*/
-            /*<# block [  - plain: b.dev.corp] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - plain: a.dev.corp", "  - plain: b.dev.corp"),
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.hosts }}
+                {{- if .Values.global.debug }}
+                  - debug: {{ . }}
+                {{- else }}
+                  - plain: {{ . }}
+                {{- end }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewsARangeOverAListOfMappings() {
-        doTestProvider(
-            "values.yaml",
-            """
-            services:
-            {{- range .Values.global.services }}
-              - name: {{ .name }}
-                port: {{ .port }}
-            /*<# block [  - name: api] #>*/
-            /*<# block [    port: 8080] #>*/
-            /*<# block [  - name: web] #>*/
-            /*<# block [    port: 80] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - name: api", "    port: 8080", "  - name: web", "    port: 80"),
+            previewOf(
+                """
+                services:
+                {{- range .Values.global.services }}
+                  - name: {{ .name }}
+                    port: {{ .port }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewsFieldsThroughAnAssignedVariable() {
-        doTestProvider(
-            "values.yaml",
-            """
-            services:
-            {{- range ${'$'}service := .Values.global.services }}
-              - {{ ${'$'}service.name }}:{{ ${'$'}service.port }}
-            /*<# block [  - api:8080] #>*/
-            /*<# block [  - web:80] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - api:8080", "  - web:80"),
+            previewOf(
+                """
+                services:
+                {{- range ${'$'}service := .Values.global.services }}
+                  - {{ ${'$'}service.name }}:{{ ${'$'}service.port }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewsNestedFieldsOfAMappingElement() {
-        doTestProvider(
-            "values.yaml",
-            """
-            services:
-            {{- range .Values.global.services }}
-              - {{ .name }}: {{ .probe.path }}
-            /*<# block [  - api: /healthz] #>*/
-            /*<# block [  - web: /] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - api: /healthz", "  - web: /"),
+            previewOf(
+                """
+                services:
+                {{- range .Values.global.services }}
+                  - {{ .name }}: {{ .probe.path }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testShowsNoPreviewForAFieldTheElementDoesNotHave() {
-        doTestProvider(
-            "values.yaml",
-            """
-            services:
-            {{- range .Values.global.services }}
-              - {{ .nope }}
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEmpty(
+            previewOf(
+                """
+                services:
+                {{- range .Values.global.services }}
+                  - {{ .nope }}
+                {{- end }}
+                """.trimIndent()
+            )
         )
     }
 
     fun testPreviewsARangeOverAMappingOfMappings() {
-        doTestProvider(
-            "values.yaml",
-            """
-            endpoints:
-            {{- range ${'$'}key, ${'$'}value := .Values.global.endpoints }}
-              - name: {{ ${'$'}key }}
-                port: {{ ${'$'}value.port }}
-            /*<# block [  - name: api] #>*/
-            /*<# block [    port: 8080] #>*/
-            /*<# block [  - name: web] #>*/
-            /*<# block [    port: 80] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - name: api", "    port: 8080", "  - name: web", "    port: 80"),
+            previewOf(
+                """
+                endpoints:
+                {{- range ${'$'}key, ${'$'}value := .Values.global.endpoints }}
+                  - name: {{ ${'$'}key }}
+                    port: {{ ${'$'}value.port }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testPreviewsARangeOverAMappingOfScalars() {
         // Sorted by key, which is the order Go visits a map in: tier before zone.
-        doTestProvider(
-            "values.yaml",
-            """
-            labels:
-            {{- range ${'$'}key, ${'$'}value := .Values.global.labels }}
-              {{ ${'$'}key }}: {{ ${'$'}value }}
-            /*<# block [  tier: web] #>*/
-            /*<# block [  zone: eu] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  tier: web", "  zone: eu"),
+            previewOf(
+                """
+                labels:
+                {{- range ${'$'}key, ${'$'}value := .Values.global.labels }}
+                  {{ ${'$'}key }}: {{ ${'$'}value }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testARangeOverAMappingBindsTheDotToTheValue() {
-        doTestProvider(
-            "values.yaml",
-            """
-            labels:
-            {{- range .Values.global.labels }}
-              - {{ . }}
-            /*<# block [  - web] #>*/
-            /*<# block [  - eu] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  - web", "  - eu"),
+            previewOf(
+                """
+                labels:
+                {{- range .Values.global.labels }}
+                  - {{ . }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
-    /** No `= true` on the if: inside a loop the answer differs per entry, so one hint cannot say. */
     fun testPreviewsNestedFieldsOfAMappingValue() {
-        doTestProvider(
-            "values.yaml",
-            """
-            endpoints:
-            {{- range ${'$'}key, ${'$'}value := .Values.global.endpoints }}
-            {{- if ${'$'}value.probe }}
-              {{ ${'$'}key }}: {{ ${'$'}value.probe.path }}
-            {{- end }}
-            /*<# block [  api: /healthz] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf("  api: /healthz"),
+            previewOf(
+                """
+                endpoints:
+                {{- range ${'$'}key, ${'$'}value := .Values.global.endpoints }}
+                {{- if ${'$'}value.probe }}
+                  {{ ${'$'}key }}: {{ ${'$'}value.probe.path }}
+                {{- end }}
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
@@ -379,79 +336,75 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
      * the body minus 2 and lands back at 4 on screen.
      */
     fun testPreviewKeepsTheStructureOfAnIndentedRange() {
-        doTestProvider(
-            "values.yaml",
-            """
-            spec:
-              containers:
-              {{- range .Values.global.services }}
-                - name: {{ .name }}
-                  ports:
-                    - containerPort: {{ .port }}
-              /*<# block [  - name: api] #>*/
-              /*<# block [    ports:] #>*/
-              /*<# block [      - containerPort: 8080] #>*/
-              /*<# block [  - name: web] #>*/
-              /*<# block [    ports:] #>*/
-              /*<# block [      - containerPort: 80] #>*/
-              {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf(
+                "  - name: api",
+                "    ports:",
+                "      - containerPort: 8080",
+                "  - name: web",
+                "    ports:",
+                "      - containerPort: 80",
+            ),
+            previewOf(
+                """
+                spec:
+                  containers:
+                  {{- range .Values.global.services }}
+                    - name: {{ .name }}
+                      ports:
+                        - containerPort: {{ .port }}
+                  {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     /** Twelve lines fit; the fifth entry would not, so it is dropped whole and counted. */
     fun testPreviewStopsAtAnEntryBoundary() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.many }}
-              - name: {{ . }}
-                type: host
-                ready: true
-            /*<# block [  - name: a] #>*/
-            /*<# block [    type: host] #>*/
-            /*<# block [    ready: true] #>*/
-            /*<# block [  - name: b] #>*/
-            /*<# block [    type: host] #>*/
-            /*<# block [    ready: true] #>*/
-            /*<# block [  - name: c] #>*/
-            /*<# block [    type: host] #>*/
-            /*<# block [    ready: true] #>*/
-            /*<# block [  - name: d] #>*/
-            /*<# block [    type: host] #>*/
-            /*<# block [    ready: true] #>*/
-            /*<# block [… 1 more entry] #>*/
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEquals(
+            listOf(
+                "  - name: a", "    type: host", "    ready: true",
+                "  - name: b", "    type: host", "    ready: true",
+                "  - name: c", "    type: host", "    ready: true",
+                "  - name: d", "    type: host", "    ready: true",
+                "… 1 more entry",
+            ),
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.many }}
+                  - name: {{ . }}
+                    type: host
+                    ready: true
+                {{- end }}
+                """.trimIndent()
+            ),
         )
     }
 
     fun testShowsNoPreviewWhenTheBodyCannotBeRendered() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.hosts }}
-              - {{ . | b64enc }}
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEmpty(
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.hosts }}
+                  - {{ . | b64enc }}
+                {{- end }}
+                """.trimIndent()
+            )
         )
     }
 
     fun testShowsNoPreviewForAnUnknownList() {
-        doTestProvider(
-            "values.yaml",
-            """
-            hosts:
-            {{- range .Values.global.nope }}
-              - {{ . }}
-            {{- end }}
-            """.trimIndent(),
-            HelmGlobalsInlayProvider(),
+        assertEmpty(
+            previewOf(
+                """
+                hosts:
+                {{- range .Values.global.nope }}
+                  - {{ . }}
+                {{- end }}
+                """.trimIndent()
+            )
         )
     }
 
@@ -461,5 +414,34 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
             "image: {{ toYaml .Values.global.image }}",
             HelmGlobalsInlayProvider(),
         )
+    }
+
+    // ---- helpers -----------------------------------------------------------------------------
+
+    /** The preview above a range, in the order the editor stacks the hints down the page. */
+    private fun previewOf(source: String): List<String> {
+        myFixture.configureByText("values.yaml", source)
+        myFixture.doHighlighting()
+        return paintedBlockHints()
+    }
+
+    /** The hint texts above each line, in the order the editor stacks them down the page. */
+    private fun paintedBlockHints(): List<String> {
+        val editor = myFixture.editor
+        return (0 until editor.document.lineCount)
+            .flatMap { line -> editor.inlayModel.getBlockElementsForVisualLine(line, true) }
+            .map { inlay ->
+                (inlay.renderer as DeclarativeInlayRendererBase<*>).presentationLists
+                    .flatMap { entriesOf(it) }
+                    .filterIsInstance<TextInlayPresentationEntry>()
+                    .joinToString("") { it.text }
+            }
+    }
+
+    /** `getEntries` is public in the bytecode but private to Kotlin, so it is read reflectively. */
+    private fun entriesOf(list: InlayPresentationList): List<InlayPresentationEntry> {
+        val method = InlayPresentationList::class.java.getMethod("getEntries")
+        @Suppress("UNCHECKED_CAST")
+        return (method.invoke(list) as Array<InlayPresentationEntry>).toList()
     }
 }
