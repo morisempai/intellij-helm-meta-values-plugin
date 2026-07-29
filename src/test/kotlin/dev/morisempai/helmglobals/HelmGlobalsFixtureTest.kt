@@ -1,7 +1,10 @@
 package dev.morisempai.helmglobals
 
+import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.psi.PsiManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
+import dev.morisempai.helmglobals.doc.HelmGlobalDocumentationHtml
+import dev.morisempai.helmglobals.doc.HelmGlobalsDocumentationTargetProvider
 import dev.morisempai.helmglobals.inspection.UnknownGlobalVariableInspection
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
@@ -40,6 +43,64 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         assertTrue(index.isMapping("global.image"))
         assertFalse(index.isMapping("global.registry"))
         assertEquals("global.image", index.longestKnownPrefix("global.image.nope"))
+    }
+
+    // ---- doc comments ---------------------------------------------------------------------
+
+    fun testHelmDocsMarkerIsStrippedAndBlockLinesAreJoined() {
+        assertEquals(
+            "Container registry all images are pulled from.\nMust be reachable from the nodes.",
+            docOf("global.registry"),
+        )
+    }
+
+    fun testPlainCommentBlockIsPickedUpToo() {
+        assertEquals("Base DNS domain for ingress hosts.", docOf("global.baseDomain"))
+    }
+
+    fun testTrailingCommentIsUsedWhenThereIsNoBlockAbove() {
+        assertEquals("how many pods", docOf("global.replicaCount"))
+    }
+
+    fun testBlankLineDetachesTheComment() {
+        assertNull(docOf("global.detached"))
+    }
+
+    fun testHelmDocsMetadataLinesAreNotProse() {
+        assertEquals("Pull policy.", docOf("global.image.pullPolicy"))
+    }
+
+    fun testMappingKeysCanBeDocumented() {
+        assertEquals("Image settings.", docOf("global.image"))
+    }
+
+    fun testUndocumentedKeyHasNoDoc() {
+        assertNull(docOf("global.image.pullSecret"))
+    }
+
+    fun testCompletionShowsTheDocInTheRightHandColumn() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.global.<caret> }}")
+        val presentation = LookupElementPresentation()
+        val element = myFixture.completeBasic().first { it.lookupString == "baseDomain" }
+        element.renderElement(presentation)
+        assertEquals("Base DNS domain for ingress hosts.", presentation.typeText)
+    }
+
+    fun testQuickDocumentationIncludesTheComment() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.global.regi<caret>stry }}")
+        // The provider recognising the caret position, and the rendering, are asserted separately:
+        // DocumentationResult is write-only, so the HTML cannot be read back off a computed target.
+        assertEquals(
+            1,
+            HelmGlobalsDocumentationTargetProvider()
+                .documentationTargets(myFixture.file, myFixture.caretOffset).size,
+        )
+        val html = HelmGlobalDocumentationHtml.render(
+            MetaValuesService.getInstance(project).index(),
+            "global.registry",
+        )
+        assertTrue(html, html.contains("Container registry all images are pulled from."))
+        assertTrue(html, html.contains("registry.dev.corp"))
     }
 
     // ---- completion -----------------------------------------------------------------------
@@ -213,6 +274,9 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
 
     // ---- helpers --------------------------------------------------------------------------
 
+    private fun docOf(path: String): String? =
+        MetaValuesService.getInstance(project).index().docOf(path)
+
     private fun assertLookupContains(vararg expected: String) {
         val items = myFixture.completeBasic()?.map { it.lookupString }.orEmpty()
         for (item in expected) {
@@ -233,10 +297,23 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         const val META_FILE_NAME = ".helm-globals.yaml"
         val META_CONTENT = """
             global:
+              # -- Container registry all images are pulled from.
+              # Must be reachable from the nodes.
               registry: registry.dev.corp
+
+              # Base DNS domain for ingress hosts.
               baseDomain: dev.corp.io
-              replicaCount: 2
+
+              replicaCount: 2  # how many pods
+
+              # Detached by the blank line below, so not documentation.
+
+              detached: x
+
+              # -- Image settings.
               image:
+                # -- Pull policy.
+                # @default -- IfNotPresent
                 pullPolicy: IfNotPresent
                 pullSecret: regcred
             service:

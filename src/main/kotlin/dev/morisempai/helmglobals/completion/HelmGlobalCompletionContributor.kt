@@ -120,14 +120,25 @@ object HelmGlobalLookups {
             }
         }
 
+        // The right-hand column carries the doc comment when there is one; the meta file names are
+        // only worth the space when several files are configured.
+        val doc = index.docOf(fullPath)
         val sources = definitions.map { it.sourceName }.distinct()
-        if (sources.isNotEmpty()) {
-            element = element.withTypeText(sources.joinToString(", "), true)
+        val typeText = when {
+            doc != null -> MetaValueRendering.abbreviate(doc, MAX_DOC_LENGTH)
+            sources.isNotEmpty() -> sources.joinToString(", ")
+            else -> null
+        }
+        if (typeText != null) {
+            element = element.withTypeText(typeText, true)
         }
 
         // Concrete values first; intermediate mappings after them.
         return PrioritizedLookupElement.withPriority(element, if (isMapping) 50.0 else 100.0)
     }
+
+    /** Doc comments are prose and can be long; the lookup list only has room for the gist. */
+    private const val MAX_DOC_LENGTH = 60
 }
 
 /** After completing an intermediate mapping, type the dot and re-open completion for its children. */

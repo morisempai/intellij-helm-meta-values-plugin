@@ -12,6 +12,7 @@ import com.intellij.platform.backend.presentation.TargetPresentation
 import com.intellij.psi.PsiFile
 import com.intellij.psi.util.PsiTreeUtil
 import dev.morisempai.helmglobals.HelmGlobalsSupport
+import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.psi.HelmTemplates
@@ -64,16 +65,26 @@ private class HelmGlobalDocumentationTarget(
             .icon(AllIcons.Nodes.Field)
             .presentation()
 
-    override fun computeDocumentation(): DocumentationResult = DocumentationResult.documentation(buildHtml())
+    override fun computeDocumentation(): DocumentationResult =
+        DocumentationResult.documentation(HelmGlobalDocumentationHtml.render(MetaValuesService.getInstance(project).index(), path))
+}
 
-    private fun buildHtml(): String {
-        val index = MetaValuesService.getInstance(project).index()
+/** Split out from the target so the rendering can be asserted on without a documentation popup. */
+object HelmGlobalDocumentationHtml {
+
+    fun render(index: MetaIndex, path: String): String {
         val definitions = index.definitionsOf(path)
 
         return buildString {
             append(DocumentationMarkup.DEFINITION_START)
             append("{{ .Values.").append(StringUtil.escapeXmlEntities(path)).append(" }}")
             append(DocumentationMarkup.DEFINITION_END)
+
+            index.docOf(path)?.let { doc ->
+                append(DocumentationMarkup.CONTENT_START)
+                append(StringUtil.escapeXmlEntities(doc).replace("\n", "<br>"))
+                append(DocumentationMarkup.CONTENT_END)
+            }
 
             append(DocumentationMarkup.SECTIONS_START)
             for (definition in definitions) {

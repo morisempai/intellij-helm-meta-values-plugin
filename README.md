@@ -24,7 +24,7 @@ The plugin reads the meta file, and then completes, validates and displays those
 | **Quick fix** | *Add `global.x.y` to `.helm-globals.yaml`* creates the key — including any missing parent mappings — in the meta file and navigates to it. |
 | **Inline hints** | The resolved value is shown after the expression: `registry: {{ .Values.global.registry }}` `= registry.dev.corp`. Toggle under Settings \| Editor \| Inlay Hints \| Values, or in the plugin's own settings page. |
 | **Navigation** | Ctrl+Click / Go to Declaration on any segment jumps to the corresponding key in the meta file. Each segment is its own reference, so `global.image` in `global.image.pullPolicy` navigates to the `image` mapping. |
-| **Documentation** | Ctrl+Q (Quick Documentation) on a reference shows the value from every configured meta file, and lists the files where the variable is missing. |
+| **Documentation** | Ctrl+Q (Quick Documentation) on a reference shows the comment documenting the variable, its value in every configured meta file, and the files where it is missing. |
 
 ## The meta values file
 
@@ -42,6 +42,33 @@ global:
 ```
 
 `{{ .Values.global.image.pullPolicy }}` resolves to `IfNotPresent`.
+
+### Documenting variables
+
+The `#` comment block directly above a key documents it. The block shows up in the completion popup
+and in Quick Documentation (Ctrl+Q) on any reference to that variable.
+
+```yaml
+global:
+  # -- Container registry all images are pulled from.
+  # Must be reachable from the cluster nodes.
+  registry: registry.dev.corp
+
+  # A plain comment works too, the -- marker is optional.
+  baseDomain: dev.corp.io
+
+  replicaCount: 2  # used when there is no block above
+```
+
+- The leading `--` is [helm-docs](https://github.com/norwoodj/helm-docs) syntax and is stripped when
+  present, so the same meta file can generate a README table. It is optional: any comment block
+  counts.
+- An empty line between the comment and the key detaches it — that is how you write a note that is
+  not documentation.
+- helm-docs metadata lines (`# @default -- …`, `# @section -- …`) are recognised and left out of the
+  rendered text.
+- Mapping keys can be documented too, not just leaves.
+- A trailing comment on the key's own line is used when there is no block above it.
 
 **Discovery by convention.** With nothing configured, the plugin looks in the project root and in
 every content root for, in order: `.helm-globals.yaml`, `.helm-globals.yml`, `helm-globals.yaml`,

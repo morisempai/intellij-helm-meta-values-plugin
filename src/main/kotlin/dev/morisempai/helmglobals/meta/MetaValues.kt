@@ -15,6 +15,8 @@ data class MetaValue(
     val isScalar: Boolean,
     /** File name of the meta values file this definition came from, for display. */
     val sourceName: String,
+    /** Comment documenting the key, as described by [MetaDocComments]; `null` when undocumented. */
+    val doc: String?,
     val pointer: SmartPsiElementPointer<YAMLKeyValue>,
 )
 
@@ -35,6 +37,9 @@ class MetaIndex(
 
     /** `true` when at least one meta file defines [path] as a mapping. */
     fun isMapping(path: String): Boolean = definitionsOf(path).any { !it.isScalar }
+
+    /** Documentation for [path], taken from the first meta file that documents it. */
+    fun docOf(path: String): String? = definitionsOf(path).firstNotNullOfOrNull { it.doc }
 
     /** Meta files that do *not* define [path], out of all files that contributed to this index. */
     fun sourcesMissing(path: String): List<String> {

@@ -142,6 +142,7 @@ class MetaValuesService(private val project: Project) {
                 presentableValue = if (isScalar) renderValue(value) else null,
                 isScalar = isScalar,
                 sourceName = sourceName,
+                doc = MetaDocComments.of(keyValue),
                 pointer = pointerManager.createSmartPsiElementPointer<YAMLKeyValue>(keyValue),
             )
 
