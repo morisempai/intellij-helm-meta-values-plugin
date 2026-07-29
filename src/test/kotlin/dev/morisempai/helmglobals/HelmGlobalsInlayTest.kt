@@ -53,6 +53,22 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
         )
     }
 
+    fun testAppliesAQuotePipeToTheShownValue() {
+        doTestProvider(
+            "values.yaml",
+            """registry: {{ .Values.global.registry | quote }}/*<# = "registry.dev.corp" #>*/""",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testFallsBackToTheRawValueForAnUnmodelledPipe() {
+        doTestProvider(
+            "values.yaml",
+            "registry: {{ .Values.global.registry | b64enc }}/*<# = registry.dev.corp #>*/",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
     fun testShowsNothingForAMapping() {
         doTestProvider(
             "values.yaml",

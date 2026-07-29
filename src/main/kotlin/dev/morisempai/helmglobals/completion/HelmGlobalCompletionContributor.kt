@@ -17,6 +17,7 @@ import com.intellij.util.ProcessingContext
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
+import dev.morisempai.helmglobals.template.GoTemplateFunctions
 
 class HelmGlobalCompletionContributor : CompletionContributor() {
     init {
@@ -42,16 +43,24 @@ private class HelmGlobalCompletionProvider : CompletionProvider<CompletionParame
         if (!isInsideTemplateRegion(text, offset)) return
 
         val windowStart = (offset - LOOKBEHIND).coerceAtLeast(0)
-        val match = VALUES_PREFIX.find(text.substring(windowStart, offset)) ?: return
+        val before = text.substring(windowStart, offset)
 
-        val parentPath = match.groupValues[1].trimEnd('.')
-        val alreadyTyped = match.groupValues[2]
+        val match = VALUES_PREFIX.find(before)
+        if (match != null) {
+            val parentPath = match.groupValues[1].trimEnd('.')
+            val alreadyTyped = match.groupValues[2]
 
-        val lookups = HelmGlobalLookups.childLookups(index, parentPath, globals.root)
-        if (lookups.isEmpty()) return
+            val lookups = HelmGlobalLookups.childLookups(index, parentPath, globals.root)
+            if (lookups.isEmpty()) return
 
-        result.withPrefixMatcher(alreadyTyped).addAllElements(lookups)
-        // Nothing else is meaningful inside a `{{ ... }}` expression.
+            result.withPrefixMatcher(alreadyTyped).addAllElements(lookups)
+            // Nothing else is meaningful inside a `{{ ... }}` expression.
+            result.stopHere()
+            return
+        }
+
+        val functionPrefix = FUNCTION_POSITION.find(before)?.groupValues?.get(1) ?: return
+        result.withPrefixMatcher(functionPrefix).addAllElements(HelmGlobalLookups.functionLookups())
         result.stopHere()
     }
 
@@ -68,6 +77,13 @@ private class HelmGlobalCompletionProvider : CompletionProvider<CompletionParame
 
         /** Matches a possibly half-typed `.Values.a.b.c` ending exactly at the caret. */
         val VALUES_PREFIX = Regex("""\$?\.Values\.((?:[A-Za-z0-9_-]+\.)*)([A-Za-z0-9_-]*)$""")
+
+        /**
+         * A function may start the expression, follow a pipe, or open a parenthesised sub-call —
+         * `{{ pri`, `{{ .Values.x | qu`, `{{ printf "%s" (up`. Only the first identifier of such a
+         * segment is a function name; once a space follows it, what comes next is an argument.
+         */
+        val FUNCTION_POSITION = Regex("""(?:\{\{|\||\()-?[ \t]*([A-Za-z][A-Za-z0-9]*)?$""")
     }
 }
 
@@ -132,8 +148,41 @@ object HelmGlobalLookups {
         return PrioritizedLookupElement.withPriority(element, if (isMapping) 50.0 else 100.0)
     }
 
+    /** Go template built-ins, Sprig functions and the control actions, offered as one list. */
+    fun functionLookups(): List<LookupElement> = FUNCTION_LOOKUPS
+
+    private val FUNCTION_LOOKUPS: List<LookupElement> by lazy {
+        GoTemplateFunctions.entries.map { entry ->
+            val element = LookupElementBuilder.create(entry.name)
+                .withIcon(
+                    if (entry.kind == GoTemplateFunctions.Kind.ACTION) AllIcons.Nodes.Tag
+                    else AllIcons.Nodes.Function
+                )
+                .withTailText(if (entry.arguments.isEmpty()) "" else "  ${entry.arguments}", true)
+                .withTypeText(MetaValueRendering.abbreviate(entry.description, MAX_DOC_LENGTH), true)
+                .withInsertHandler(SpaceAfterFunctionInsertHandler)
+            // Below the variables, which are the reason this plugin exists.
+            PrioritizedLookupElement.withPriority(element, 10.0)
+        }
+    }
+
     /** Doc comments are prose and can be long; the lookup list only has room for the gist. */
     private const val MAX_DOC_LENGTH = 60
+}
+
+/** A function is always followed by an argument or a pipe, never by the closing braces. */
+private object SpaceAfterFunctionInsertHandler : InsertHandler<LookupElement> {
+    override fun handleInsert(context: InsertionContext, item: LookupElement) {
+        val entry = GoTemplateFunctions[item.lookupString]
+        if (entry == null || entry.arguments.isEmpty()) return
+        val offset = context.tailOffset
+        if (context.document.textLength > offset && context.document.charsSequence[offset] == ' ') {
+            context.editor.caretModel.moveToOffset(offset + 1)
+            return
+        }
+        context.document.insertString(offset, " ")
+        context.editor.caretModel.moveToOffset(offset + 1)
+    }
 }
 
 /** After completing an intermediate mapping, type the dot and re-open completion for its children. */

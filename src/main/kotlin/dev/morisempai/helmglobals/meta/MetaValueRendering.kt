@@ -13,6 +13,16 @@ object MetaValueRendering {
     fun quoteIfBlank(value: String): String = value.ifEmpty { "\"\"" }
 
     /**
+     * The one value every meta file agrees on, or `null` when the path is a mapping or the files
+     * disagree — the cases where there is no single value to put through a pipe chain.
+     */
+    fun singleScalarValue(definitions: List<MetaValue>): String? {
+        val scalars = definitions.filter { it.isScalar }
+        if (scalars.isEmpty()) return null
+        return scalars.map { it.presentableValue.orEmpty() }.distinct().singleOrNull()
+    }
+
+    /**
      * Short one-line rendering of a value across all meta files.
      * With a single source: `registry.dev.corp`.
      * With several: `dev.yaml: registry.dev.corp | prod.yaml: registry.corp`.

@@ -24,7 +24,8 @@ The plugin reads the meta file, and then completes, validates and displays those
 | **Quick fix** | *Add `global.x.y` to `.helm-globals.yaml`* creates the key — including any missing parent mappings — in the meta file and navigates to it. |
 | **Inline hints** | The resolved value is shown after the expression: `registry: {{ .Values.global.registry }}` `= registry.dev.corp`. Toggle under Settings \| Editor \| Inlay Hints \| Values, or in the plugin's own settings page. |
 | **Navigation** | Ctrl+Click / Go to Declaration on any segment jumps to the corresponding key in the meta file. Each segment is its own reference, so `global.image` in `global.image.pullPolicy` navigates to the `image` mapping. |
-| **Documentation** | Ctrl+Q (Quick Documentation) on a reference shows the comment documenting the variable, its value in every configured meta file, and the files where it is missing. |
+| **Documentation** | Ctrl+Q (Quick Documentation) on a reference shows the comment documenting the variable, its value in every configured meta file, and the files where it is missing. On a function name it shows the signature and what the function does. |
+| **Template functions** | Go template built-ins, Sprig functions and the control actions are completed at the start of an expression, after a pipe and inside parentheses, with their arguments and a one-line description. |
 
 ## The meta values file
 
@@ -143,6 +144,36 @@ it can be committed and shared with the team):
 
 A meta file is never treated as a templated values file itself, and everything is inert when the
 master checkbox is off.
+
+## Template functions and pipes
+
+Completion offers the Go template built-ins, the Sprig functions Helm bundles and the control
+actions, wherever a function can start: at the beginning of an expression, after a `|`, and inside
+`(`. Each entry shows its arguments and a one-line description, and Ctrl+Q gives the same on any
+function name already in the file.
+
+```yaml
+registry: {{ .Values.global.registry | quote }}
+host: {{ printf "%s.%s" .Values.global.name .Values.global.baseDomain }}
+replicas: {{ .Values.global.replicaCount | default 2 }}
+```
+
+Inline hints follow simple pipes, so what you see is what the expression renders:
+
+| Expression | Hint |
+|---|---|
+| `{{ .Values.global.registry }}` | `= registry.dev.corp` |
+| `{{ .Values.global.registry \| quote }}` | `= "registry.dev.corp"` |
+| `{{ .Values.global.registry \| upper \| quote }}` | `= "REGISTRY.DEV.CORP"` |
+| `{{ .Values.global.registry \| b64enc }}` | `= registry.dev.corp` |
+
+The evaluator models `quote`, `squote`, `upper`, `lower`, `title`, `trim`, `trimPrefix`,
+`trimSuffix`, `toString` and `default`. For anything else — `b64enc` in the table above, `printf`, or
+one of your chart's own helpers — it shows the raw value rather than guessing at a result that would
+be wrong.
+
+An unknown function name is never reported as an error: charts define their own helpers with
+`define`, so the catalogue is for completion only.
 
 ## Supported syntax
 

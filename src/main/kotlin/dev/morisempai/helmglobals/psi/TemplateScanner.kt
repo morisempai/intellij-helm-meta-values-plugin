@@ -53,6 +53,10 @@ object TemplateScanner {
     fun mentionsStructureFunction(templateBody: String): Boolean =
         STRUCTURE_FUNCTION.containsMatchIn(VALUES_REFERENCE.replace(templateBody, " "))
 
+    /** Ranges of every `{{ ... }}` region in [text], braces included. */
+    fun regions(text: CharSequence): List<TextRange> =
+        TEMPLATE_REGION.findAll(text).map { TextRange(it.range.first, it.range.last + 1) }.toList()
+
     /** Scans text that still carries its `{{ ... }}` delimiters, e.g. a quoted YAML scalar. */
     fun scan(text: CharSequence): List<ValuesReference> {
         if (text.length < MIN_DELIMITED_LENGTH || !text.contains("{{")) return emptyList()

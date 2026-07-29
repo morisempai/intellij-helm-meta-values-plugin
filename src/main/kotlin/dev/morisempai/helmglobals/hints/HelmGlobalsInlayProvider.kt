@@ -13,6 +13,8 @@ import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.psi.HelmTemplates
+import dev.morisempai.helmglobals.psi.ValuesReference
+import dev.morisempai.helmglobals.template.PipeEvaluator
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -48,10 +50,7 @@ private class ResolvedValueCollector(
             val parts = group
                 .filter { it.isUnder(root) }
                 .mapNotNull { reference ->
-                    val summary = MetaValueRendering.inlineSummary(
-                        index.definitionsOf(reference.path),
-                        multipleSources,
-                    ) ?: return@mapNotNull null
+                    val summary = summaryOf(reference) ?: return@mapNotNull null
                     if (group.size == 1) summary else "${reference.path.substringAfterLast('.')} = $summary"
                 }
                 .distinct()
@@ -71,6 +70,21 @@ private class ResolvedValueCollector(
                 text(if (group.size == 1) "= ${parts.first()}" else parts.joinToString(", "))
             }
         }
+    }
+
+    /**
+     * The value as the expression actually renders it: a pipe chain of plain string functions is
+     * applied, so `| quote` shows the quotes. Anything the evaluator does not model falls back to
+     * the raw value.
+     */
+    private fun summaryOf(reference: ValuesReference): String? {
+        val definitions = index.definitionsOf(reference.path)
+        MetaValueRendering.singleScalarValue(definitions)?.let { raw ->
+            PipeEvaluator.apply(reference.templateBody, reference.path, raw)?.let { piped ->
+                return MetaValueRendering.abbreviate(MetaValueRendering.quoteIfBlank(piped))
+            }
+        }
+        return MetaValueRendering.inlineSummary(definitions, multipleSources)
     }
 
     private fun tooltipFor(path: String): String {

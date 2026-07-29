@@ -142,6 +142,59 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         assertFalse(items.contains("registry"))
     }
 
+    // ---- go template functions --------------------------------------------------------------
+
+    fun testFunctionsAreOfferedAtTheStartOfAnExpression() {
+        myFixture.configureByText("values.yaml", "x: {{ pri<caret> }}")
+        assertLookupContains("printf", "print", "println")
+    }
+
+    fun testFunctionsAreOfferedAfterAPipe() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.global.registry | qu<caret> }}")
+        assertLookupContains("quote")
+    }
+
+    fun testFunctionsAreOfferedInsideParentheses() {
+        myFixture.configureByText("values.yaml", "x: {{ printf \"%s\" (up<caret> }}")
+        assertLookupContains("upper")
+    }
+
+    fun testControlActionsAreOffered() {
+        myFixture.configureByText("values.yaml", "{{- ra<caret> }}")
+        assertLookupContains("range")
+    }
+
+    fun testFunctionsAreNotOfferedWhereAnArgumentBelongs() {
+        myFixture.configureByText("values.yaml", "x: {{ printf \"%s\" qu<caret> }}")
+        val items = myFixture.completeBasic()?.map { it.lookupString }.orEmpty()
+        assertFalse(items.contains("quote"))
+    }
+
+    fun testVariablesStillWinOverFunctionsAfterValues() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.global.<caret> }}")
+        val items = myFixture.completeBasic()?.map { it.lookupString }.orEmpty()
+        assertTrue(items.contains("registry"))
+        assertFalse(items.contains("quote"))
+    }
+
+    fun testFunctionDocumentationIsOffered() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.global.registry | quo<caret>te }}")
+        val targets = HelmGlobalsDocumentationTargetProvider()
+            .documentationTargets(myFixture.file, myFixture.caretOffset)
+        assertEquals("quote VALUE…", targets.single().computePresentation().presentableText)
+    }
+
+    fun testPipedExpressionsAreStillValidated() {
+        myFixture.enableInspections(UnknownGlobalVariableInspection())
+        myFixture.configureByText(
+            "values.yaml",
+            "x: {{ printf \"%s/%s\" .Values.global.registry .Values.global.nope | quote }}",
+        )
+        val reported = descriptions()
+        assertTrue(reported.any { it.contains("global.nope") })
+        assertTrue(reported.none { it.contains("global.registry") })
+    }
+
     // ---- references -----------------------------------------------------------------------
 
     fun testReferenceResolvesToTheMetaKey() {

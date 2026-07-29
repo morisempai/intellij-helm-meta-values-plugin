@@ -16,6 +16,8 @@ import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.meta.MetaValuesService
 import dev.morisempai.helmglobals.psi.HelmTemplates
+import dev.morisempai.helmglobals.psi.TemplateScanner
+import dev.morisempai.helmglobals.template.GoTemplateFunctions
 import org.jetbrains.yaml.psi.YAMLScalar
 
 /**
@@ -26,6 +28,8 @@ class HelmGlobalsDocumentationTargetProvider : DocumentationTargetProvider {
 
     override fun documentationTargets(file: PsiFile, offset: Int): List<DocumentationTarget> {
         val context = HelmGlobalsSupport.contextFor(file) ?: return emptyList()
+
+        functionAt(file.text, offset)?.let { return listOf(GoTemplateFunctionDocumentationTarget(it)) }
 
         val leaf = file.findElementAt(offset) ?: return emptyList()
         val scalar = PsiTreeUtil.getParentOfType(leaf, YAMLScalar::class.java, false) ?: return emptyList()
@@ -44,6 +48,51 @@ class HelmGlobalsDocumentationTargetProvider : DocumentationTargetProvider {
         if (!context.index.contains(path)) return emptyList()
         return listOf(HelmGlobalDocumentationTarget(project, path))
     }
+
+    /**
+     * The Go template function whose name the caret sits on, if any. Works on the raw text: a
+     * function name is not part of the YAML PSI, and it may sit in an expression the parser
+     * mangles anyway.
+     */
+    private fun functionAt(text: String, offset: Int): GoTemplateFunctions.Entry? {
+        if (TemplateScanner.regions(text).none { it.containsOffset(offset) }) return null
+
+        var start = offset
+        while (start > 0 && text[start - 1].isLetterOrDigit()) start--
+        var end = offset
+        while (end < text.length && text[end].isLetterOrDigit()) end++
+        if (start == end) return null
+
+        // `.Values` and `$chart.name` are not function calls.
+        if (start > 0 && (text[start - 1] == '.' || text[start - 1] == '$')) return null
+        return GoTemplateFunctions[text.substring(start, end)]
+    }
+}
+
+private class GoTemplateFunctionDocumentationTarget(
+    private val entry: GoTemplateFunctions.Entry,
+) : DocumentationTarget {
+
+    override fun createPointer(): Pointer<out DocumentationTarget> {
+        val captured = entry
+        return Pointer { GoTemplateFunctionDocumentationTarget(captured) }
+    }
+
+    override fun computePresentation(): TargetPresentation =
+        TargetPresentation.builder(entry.signature)
+            .icon(AllIcons.Nodes.Function)
+            .presentation()
+
+    override fun computeDocumentation(): DocumentationResult = DocumentationResult.documentation(
+        buildString {
+            append(DocumentationMarkup.DEFINITION_START)
+            append(StringUtil.escapeXmlEntities(entry.signature))
+            append(DocumentationMarkup.DEFINITION_END)
+            append(DocumentationMarkup.CONTENT_START)
+            append(StringUtil.escapeXmlEntities(entry.description))
+            append(DocumentationMarkup.CONTENT_END)
+        }
+    )
 }
 
 private class HelmGlobalDocumentationTarget(
