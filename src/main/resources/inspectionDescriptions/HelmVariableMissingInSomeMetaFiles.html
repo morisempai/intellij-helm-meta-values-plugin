@@ -1,0 +1,18 @@
+<html>
+<body>
+Reports a variable that some, but not all, of the configured meta values files define.
+
+<p>
+  This is useful when the meta files are <b>parallel environments</b> — <code>dev.yaml</code> and
+  <code>prod.yaml</code> describing the same variables with different values — where a gap means the
+  variable was added to one environment and forgotten in another. The quick fix adds it to each file
+  that is missing it.
+</p>
+
+<p>
+  It is <b>off by default</b>, because meta files are just as often <b>complementary</b>, each
+  contributing its own set of keys. In that arrangement every variable is missing from all the other
+  files by design and the report is pure noise.
+</p>
+</body>
+</html>

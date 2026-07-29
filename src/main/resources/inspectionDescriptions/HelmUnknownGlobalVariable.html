@@ -10,12 +10,16 @@ as a key; expressions inside comments are skipped.
   only <code>{{ .Values.global.* }}</code> is checked.
 </p>
 
-<p>Two softer signals are reported as weak warnings:</p>
-<ul>
-  <li>the path resolves to a mapping while the expression uses it as a plain value
-      (expressions that consume structures, such as <code>toYaml</code> or <code>range</code>, are ignored);</li>
-  <li>the path is defined in only some of several configured meta values files.</li>
-</ul>
+<p>
+  One softer signal is reported as a weak warning: the path resolves to a mapping while the
+  expression uses it as a plain value. Expressions that consume structures, such as
+  <code>toYaml</code> or <code>range</code>, are ignored.
+</p>
+
+<p>
+  A variable defined in only some of several meta values files is <i>not</i> reported here. That is
+  a separate, opt-in inspection, <i>Helm global variable missing in some meta values files</i>.
+</p>
 
 <p>
   The inspection is inactive until a meta values file resolves. Configure it under

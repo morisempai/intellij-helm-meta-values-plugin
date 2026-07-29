@@ -20,7 +20,7 @@ The plugin reads the meta file, and then completes, validates and displays those
 | | |
 |---|---|
 | **Completion** | Typing `{{ .Values.global.` offers the keys of the meta file. Mappings are marked with an object icon and a `{n}` child count, and selecting one inserts the dot and re-opens completion so you can walk the tree. Scalars show `= value` in the tail. |
-| **Inspection** | `Unknown Helm global variable` (WARNING) underlines the first segment that does not exist in the meta file. Two weak warnings complement it: using a mapping where a scalar is expected, and a variable that exists in some meta files but not all of them. |
+| **Inspection** | `Unknown Helm global variable` (WARNING) underlines the first segment that does not exist in the meta file, plus a weak warning for using a mapping where a scalar is expected. Two more inspections cover a meta file that cannot be found and — opt-in — a variable missing from some of several meta files. |
 | **Quick fix** | *Add `global.x.y` to `.helm-globals.yaml`* creates the key — including any missing parent mappings — in the meta file and navigates to it. |
 | **Inline hints** | The resolved value is shown after the expression: `registry: {{ .Values.global.registry }}` `= registry.dev.corp`. Toggle under Settings \| Editor \| Inlay Hints \| Values, or in the plugin's own settings page. |
 | **Navigation** | Ctrl+Click / Go to Declaration on any segment jumps to the corresponding key in the meta file. Each segment is its own reference, so `global.image` in `global.image.pullPolicy` navigates to the `image` mapping. |
@@ -75,10 +75,23 @@ every content root for, in order: `.helm-globals.yaml`, `.helm-globals.yml`, `he
 `helm-globals.yml`. An individual file can override this with a directive comment — see
 [Pointing a file at its meta file](#pointing-a-file-at-its-meta-file).
 
-**Multiple meta files.** You can configure several (e.g. one per environment). Completion shows the
-union of their keys; documentation shows each file's value side by side; a variable defined in only
-some of them gets a weak warning. This is the intended way to spot a variable you added to `dev` but
-forgot in `prod`.
+**Multiple meta files.** You can configure several. Completion shows the union of their keys, and
+documentation shows each file's value side by side. A variable only has to exist in one of them.
+
+### Parallel environment files
+
+Meta files come in two arrangements, and they want opposite behaviour:
+
+- **Complementary** — each file contributes its own keys (`shared.yaml` + `dev.yaml`). Every variable
+  is absent from all the other files by design. This is the default assumption: nothing is reported.
+- **Parallel environments** — each file describes the *same* variables with different values
+  (`dev.yaml` + `prod.yaml`). Here a gap usually means someone added a variable to one environment
+  and forgot another.
+
+For the second case, enable **Helm global variable missing in some meta values files** under
+Settings | Editor | Inspections | YAML | Helm. It reports any variable that some, but not all, of the
+meta files define, and its quick fix adds the variable to each file that lacks it. It is off by
+default because it is pure noise in the complementary arrangement.
 
 ## Pointing a file at its meta file
 
@@ -103,7 +116,8 @@ Long form, with several meta files and an explicit variable root:
 - A bare token is a meta file path; `$meta=` says the same thing explicitly. Separate tokens with
   spaces or commas.
 - Several paths are merged, exactly like several configured meta files: completion shows the union,
-  and a variable missing from one of them is reported.
+  and a variable only needs to exist in one of them. See
+  [Parallel environment files](#parallel-environment-files) if you want the gaps reported.
 - Paths resolve relative to the file's own directory first — as with `# yaml-language-server` — then
   to the project root and the content roots. Absolute paths work too.
 - `$root=global` narrows the scope for this file; a bare `$root=` widens it back to every

@@ -5,7 +5,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementResolveResult
 import com.intellij.psi.PsiPolyVariantReferenceBase
 import com.intellij.psi.ResolveResult
-import dev.morisempai.helmglobals.meta.MetaValuesService
+import dev.morisempai.helmglobals.HelmGlobalsSupport
 
 /**
  * Reference from one segment of a `{{ .Values.<path> }}` expression to the matching key in the
@@ -23,7 +23,12 @@ class HelmGlobalReference(
 ) : PsiPolyVariantReferenceBase<PsiElement>(element, rangeInElement, true) {
 
     override fun multiResolve(incompleteCode: Boolean): Array<ResolveResult> {
-        val definitions = MetaValuesService.getInstance(element.project).index().definitionsOf(path)
+        // Resolve through the containing file's own context: with a `# helm-globals:` directive the
+        // meta files are per file, so the project-wide index is the wrong place to look.
+        val file = element.containingFile ?: return ResolveResult.EMPTY_ARRAY
+        val index = HelmGlobalsSupport.contextFor(file)?.index ?: return ResolveResult.EMPTY_ARRAY
+
+        val definitions = index.definitionsOf(path)
         if (definitions.isEmpty()) return ResolveResult.EMPTY_ARRAY
         return definitions
             .mapNotNull { it.pointer.element }

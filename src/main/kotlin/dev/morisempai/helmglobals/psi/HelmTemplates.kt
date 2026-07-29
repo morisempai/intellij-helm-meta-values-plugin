@@ -1,6 +1,9 @@
 package dev.morisempai.helmglobals.psi
 
+import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiTreeUtil
 import org.jetbrains.yaml.psi.YAMLMapping
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -31,6 +34,24 @@ object HelmTemplates {
         if (enclosingTemplateMapping(scalar) == null) return emptyList()
         return TemplateScanner.scanBody(text)
     }
+
+    /**
+     * Every in-scope reference in the whole file, read from its raw text so that expressions the
+     * YAML parser cannot represent — a bare `{{- if ... }}` line, a template used as a key — are
+     * included too. Ranges are absolute; commented-out expressions are left out.
+     */
+    fun referencesIn(file: PsiFile, root: String?): List<ValuesReference> {
+        val text = file.text
+        return TemplateScanner.scan(text).filter { reference ->
+            reference.isUnder(root) &&
+                reference.pathRange.endOffset <= text.length &&
+                !isInsideComment(file, reference.pathRange.startOffset)
+        }
+    }
+
+    /** Commented-out examples are not code. */
+    private fun isInsideComment(file: PsiFile, offset: Int): Boolean =
+        PsiTreeUtil.getParentOfType(file.findElementAt(offset), PsiComment::class.java, false) != null
 
     /**
      * Absolute file offset just past the `}}` that closes the expression [reference] belongs to.

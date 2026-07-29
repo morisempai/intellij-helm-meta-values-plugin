@@ -2,10 +2,12 @@ package dev.morisempai.helmglobals
 
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.morisempai.helmglobals.directive.HelmGlobalsDirectives
+import dev.morisempai.helmglobals.inspection.MissingInSomeMetaFilesInspection
 import dev.morisempai.helmglobals.inspection.UnknownGlobalVariableInspection
 import dev.morisempai.helmglobals.inspection.UnresolvedMetaFileInspection
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import dev.morisempai.helmglobals.settings.HelmGlobalsState
+import org.jetbrains.yaml.psi.YAMLKeyValue
 
 /**
  * The `# helm-globals:` directive: an explicit, per-file replacement for the configured meta files,
@@ -143,6 +145,48 @@ class HelmGlobalsDirectiveTest : BasePlatformTestCase() {
             "# helm-globals: \$meta=meta/dev.yaml \$root=\nx: {{ .Values.service.nope }}",
         )
         assertTrue(descriptions().any { it.contains("service.nope") })
+    }
+
+    fun testCtrlClickResolvesIntoTheDirectivesMetaFile() {
+        myFixture.configureByText(
+            "values.yaml",
+            "# helm-globals: meta/dev.yaml\nregistry: {{ .Values.global.regi<caret>stry }}",
+        )
+        val resolved = myFixture.file.findReferenceAt(myFixture.caretOffset)?.resolve()
+        assertNotNull("expected the reference to resolve", resolved)
+        assertEquals("registry", (resolved as YAMLKeyValue).keyText)
+        // The convention file also defines global.registry, so the source file proves which won.
+        assertEquals("dev.yaml", resolved.containingFile.name)
+    }
+
+    fun testCtrlClickResolvesIntoTheSecondOfSeveralMetaFiles() {
+        myFixture.configureByText(
+            "values.yaml",
+            "# helm-globals: meta/dev.yaml meta/shared.yaml\nx: {{ .Values.global.te<caret>am }}",
+        )
+        val resolved = myFixture.file.findReferenceAt(myFixture.caretOffset)?.resolve()
+        assertEquals("team", (resolved as? YAMLKeyValue)?.keyText)
+        assertEquals("shared.yaml", resolved?.containingFile?.name)
+    }
+
+    fun testComplementaryMetaFilesAreNotReportedByDefault() {
+        myFixture.enableInspections(UnknownGlobalVariableInspection())
+        myFixture.configureByText(
+            "values.yaml",
+            "# helm-globals: meta/dev.yaml meta/shared.yaml\nx: {{ .Values.global.team }}",
+        )
+        // `team` lives only in shared.yaml, `registry` only in dev.yaml: that is the normal
+        // arrangement for complementary files and must stay quiet.
+        assertTrue(descriptions().toString(), descriptions().none { it.contains("not defined in") })
+    }
+
+    fun testMissingInSomeMetaFilesIsReportedWhenTheInspectionIsEnabled() {
+        myFixture.enableInspections(MissingInSomeMetaFilesInspection())
+        myFixture.configureByText(
+            "values.yaml",
+            "# helm-globals: meta/dev.yaml meta/shared.yaml\nx: {{ .Values.global.team }}",
+        )
+        assertTrue(descriptions().any { it.contains("global.team") && it.contains("dev.yaml") })
     }
 
     fun testMissingMetaFileIsReported() {

@@ -46,6 +46,18 @@
                 level="WARNING"
                 implementationClass="dev.morisempai.helmglobals.inspection.UnknownGlobalVariableInspection"/>
 
+        <!-- Off by default: only meaningful when the meta files are parallel environments. -->
+        <localInspection
+                language="yaml"
+                shortName="HelmVariableMissingInSomeMetaFiles"
+                bundle="messages.HelmGlobalsBundle"
+                key="inspection.missing.in.some.sources.display.name"
+                groupPath="YAML"
+                groupName="Helm"
+                enabledByDefault="false"
+                level="WEAK WARNING"
+                implementationClass="dev.morisempai.helmglobals.inspection.MissingInSomeMetaFilesInspection"/>
+
         <localInspection
                 language="yaml"
                 shortName="HelmUnresolvedMetaFile"

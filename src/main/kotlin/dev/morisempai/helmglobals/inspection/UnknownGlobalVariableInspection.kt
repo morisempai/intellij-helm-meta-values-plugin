@@ -6,21 +6,21 @@ import com.intellij.codeInspection.ProblemHighlightType
 import com.intellij.codeInspection.ProblemsHolder
 import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.PsiComment
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiElementVisitor
 import com.intellij.psi.PsiFile
-import com.intellij.psi.util.PsiTreeUtil
 import dev.morisempai.helmglobals.HelmGlobalsBundle
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
-import dev.morisempai.helmglobals.psi.TemplateScanner
+import dev.morisempai.helmglobals.psi.HelmTemplates
 import dev.morisempai.helmglobals.psi.ValuesReference
 
 /**
- * Reports `{{ .Values.* }}` expressions whose path is absent from the meta values file, plus two
- * softer signals: a path that points at a mapping where a scalar is expected, and a path that only
- * some of several configured meta files define.
+ * Reports `{{ .Values.* }}` expressions whose path is absent from the meta values file, plus one
+ * softer signal: a path that points at a mapping where a scalar is expected.
+ *
+ * A variable that only *some* of several meta files define is deliberately not reported here — see
+ * [MissingInSomeMetaFilesInspection], which is a separate, opt-in inspection.
  *
  * Restricted to one branch of the tree when a variable root is configured; by default every
  * `.Values.*` path is checked.
@@ -37,27 +37,13 @@ class UnknownGlobalVariableInspection : LocalInspectionTool() {
         val metaFiles = context.metaFiles
 
         return object : PsiElementVisitor() {
-            /**
-             * Validation runs over the file's raw text rather than over its scalars. The YAML parser
-             * cannot represent every Helm construct — a bare `{{- if ... }}` line, or a template
-             * used as a key, never becomes a YAML scalar — but the braces are always there in the
-             * text, so scanning it catches every expression in the file.
-             */
             override fun visitFile(psiFile: PsiFile) {
-                val text = psiFile.text
-                for (reference in TemplateScanner.scan(text)) {
-                    if (!reference.isUnder(root)) continue
-                    if (reference.pathRange.endOffset > text.length) continue
-                    // Commented-out examples are not errors.
-                    if (isInsideComment(psiFile, reference.pathRange.startOffset)) continue
+                for (reference in HelmTemplates.referencesIn(psiFile, root)) {
                     inspect(holder, isOnTheFly, psiFile, index, reference, metaFiles)
                 }
             }
         }
     }
-
-    private fun isInsideComment(file: PsiFile, offset: Int): Boolean =
-        PsiTreeUtil.getParentOfType(file.findElementAt(offset), PsiComment::class.java, false) != null
 
     private fun inspect(
         holder: ProblemsHolder,
@@ -77,20 +63,6 @@ class UnknownGlobalVariableInspection : LocalInspectionTool() {
                 holder, isOnTheFly, host, reference.pathRange,
                 HelmGlobalsBundle.message("inspection.object.used.as.value", reference.path),
                 ProblemHighlightType.WEAK_WARNING,
-            )
-        }
-
-        val missing = index.sourcesMissing(reference.path)
-        if (missing.isNotEmpty()) {
-            register(
-                holder, isOnTheFly, host, reference.pathRange,
-                HelmGlobalsBundle.message(
-                    "inspection.missing.in.some.sources",
-                    reference.path,
-                    missing.joinToString(", "),
-                ),
-                ProblemHighlightType.WEAK_WARNING,
-                *fixesFor(reference.path, metaFiles.filter { it.name in missing }),
             )
         }
     }
