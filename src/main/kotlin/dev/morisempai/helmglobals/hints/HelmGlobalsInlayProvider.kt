@@ -14,7 +14,7 @@ import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.psi.HelmTemplates
 import dev.morisempai.helmglobals.psi.ValuesReference
-import dev.morisempai.helmglobals.template.PipeEvaluator
+import dev.morisempai.helmglobals.template.TemplateEvaluator
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import org.jetbrains.yaml.psi.YAMLScalar
 
@@ -47,15 +47,21 @@ private class ResolvedValueCollector(
         for ((_, group) in references.groupBy { it.templateRange }) {
             val anchor = HelmTemplates.templateEndOffset(element, group.first())
 
-            val parts = group
-                .filter { it.isUnder(root) }
-                .mapNotNull { reference ->
-                    val summary = summaryOf(reference) ?: return@mapNotNull null
-                    if (group.size == 1) summary else "${reference.path.substringAfterLast('.')} = $summary"
-                }
-                .distinct()
+            // Preferably the value the whole expression renders; only when it cannot be worked out
+            // does the hint fall back to listing the variables it mentions.
+            val whole = evaluateWhole(group.first().templateBody)
+            val parts = if (whole != null) listOf(whole) else {
+                group
+                    .filter { it.isUnder(root) }
+                    .mapNotNull { reference ->
+                        val summary = summaryOf(reference) ?: return@mapNotNull null
+                        if (group.size == 1) summary else "${reference.path.substringAfterLast('.')} = $summary"
+                    }
+                    .distinct()
+            }
 
             if (parts.isEmpty()) continue
+            val singleValue = whole != null || group.size == 1
 
             val tooltip = group
                 .filter { it.isUnder(root) }
@@ -67,25 +73,26 @@ private class ResolvedValueCollector(
                 tooltip = tooltip,
                 hintFormat = HintFormat.default,
             ) {
-                text(if (group.size == 1) "= ${parts.first()}" else parts.joinToString(", "))
+                text(if (singleValue) "= ${parts.first()}" else parts.joinToString(", "))
             }
         }
     }
 
     /**
-     * The value as the expression actually renders it: a pipe chain of plain string functions is
-     * applied, so `| quote` shows the quotes. Anything the evaluator does not model falls back to
-     * the raw value.
+     * The string the whole expression renders, or `null` when it uses anything the evaluator does
+     * not model. Only paths in scope resolve, so a configured variable root still means the plugin
+     * claims no knowledge of what lies outside it.
      */
-    private fun summaryOf(reference: ValuesReference): String? {
-        val definitions = index.definitionsOf(reference.path)
-        MetaValueRendering.singleScalarValue(definitions)?.let { raw ->
-            PipeEvaluator.apply(reference.templateBody, reference.path, raw)?.let { piped ->
-                return MetaValueRendering.abbreviate(MetaValueRendering.quoteIfBlank(piped))
-            }
-        }
-        return MetaValueRendering.inlineSummary(definitions, multipleSources)
+    private fun evaluateWhole(templateBody: String): String? {
+        val value = TemplateEvaluator.evaluate(templateBody) { path ->
+            if (!ValuesReference.isUnder(path, root)) null
+            else MetaValueRendering.singleScalarValue(index.definitionsOf(path))
+        } ?: return null
+        return MetaValueRendering.abbreviate(MetaValueRendering.quoteIfBlank(value))
     }
+
+    private fun summaryOf(reference: ValuesReference): String? =
+        MetaValueRendering.inlineSummary(index.definitionsOf(reference.path), multipleSources)
 
     private fun tooltipFor(path: String): String {
         val definitions = index.definitionsOf(path)

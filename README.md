@@ -158,19 +158,26 @@ host: {{ printf "%s.%s" .Values.global.name .Values.global.baseDomain }}
 replicas: {{ .Values.global.replicaCount | default 2 }}
 ```
 
-Inline hints follow simple pipes, so what you see is what the expression renders:
+Inline hints show what the *whole* expression renders, not just the variables in it:
 
 | Expression | Hint |
 |---|---|
 | `{{ .Values.global.registry }}` | `= registry.dev.corp` |
 | `{{ .Values.global.registry \| quote }}` | `= "registry.dev.corp"` |
 | `{{ .Values.global.registry \| upper \| quote }}` | `= "REGISTRY.DEV.CORP"` |
-| `{{ .Values.global.registry \| b64enc }}` | `= registry.dev.corp` |
+| `{{ print .Values.protocol "://" .Values.url "/v1" \| quote }}` | `= "https://example/v1"` |
+| `{{ printf "%s://%s" .Values.protocol .Values.url }}` | `= https://example` |
+| `{{ b64enc .Values.protocol .Values.url }}` | `protocol = https, url = example` |
 
-The evaluator models `quote`, `squote`, `upper`, `lower`, `title`, `trim`, `trimPrefix`,
-`trimSuffix`, `toString` and `default`. For anything else — `b64enc` in the table above, `printf`, or
-one of your chart's own helpers — it shows the raw value rather than guessing at a result that would
-be wrong.
+The evaluator understands string literals, numbers, `.Values` paths, parenthesised sub-expressions
+and pipes, over these functions: `print`, `printf` (`%s`, `%v`, `%d`, `%q`), `cat`, `quote`,
+`squote`, `upper`, `lower`, `title`, `trim`, `trimPrefix`, `trimSuffix`, `replace`, `toString` and
+`default`.
+
+Anything outside that — `b64enc` in the last row, `.Release.Name`, a variable missing from the meta
+file, or one of your chart's own helpers — makes the whole expression unevaluable, and the hint falls
+back to listing the variables it mentions, as in the last row. Partial evaluation is never shown: a
+hint is either what the expression really renders or an explicit list of parts.
 
 An unknown function name is never reported as an error: charts define their own helpers with
 `define`, so the catalogue is for completion only.

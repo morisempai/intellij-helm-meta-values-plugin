@@ -22,8 +22,7 @@ data class ValuesReference(
     fun pathUpTo(index: Int): String = path.split('.').take(index + 1).joinToString(".")
 
     /** A `null` or empty [root] puts every path in scope. */
-    fun isUnder(root: String?): Boolean =
-        root.isNullOrEmpty() || path == root || path.startsWith("$root.")
+    fun isUnder(root: String?): Boolean = isUnder(path, root)
 
     /**
      * `true` when the enclosing expression consumes the value as a structure rather than as a
@@ -31,6 +30,12 @@ data class ValuesReference(
      */
     val usesValueAsStructure: Boolean
         get() = TemplateScanner.mentionsStructureFunction(templateBody)
+
+    companion object {
+        /** Same test for a bare path, for callers that have no [ValuesReference] to hand. */
+        fun isUnder(path: String, root: String?): Boolean =
+            root.isNullOrEmpty() || path == root || path.startsWith("$root.")
+    }
 }
 
 object TemplateScanner {

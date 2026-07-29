@@ -15,6 +15,10 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
             global:
               registry: registry.dev.corp
               baseDomain: dev.corp.io
+              protocol: https
+              host: example
+              scheme: http
+              port: 8080
               image:
                 pullPolicy: IfNotPresent
             """.trimIndent(),
@@ -65,6 +69,25 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
         doTestProvider(
             "values.yaml",
             "registry: {{ .Values.global.registry | b64enc }}/*<# = registry.dev.corp #>*/",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsTheResultOfPrintRatherThanEachVariable() {
+        doTestProvider(
+            "values.yaml",
+            """url: {{ print .Values.global.protocol "://" .Values.global.host "/v1" | quote }}""" +
+                """/*<# = "https://example/v1" #>*/""",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testStillListsVariablesWhenTheExpressionCannotBeEvaluated() {
+        // Kept short on purpose: a declarative hint truncates a text entry past ~30 characters.
+        doTestProvider(
+            "values.yaml",
+            "url: {{ b64enc .Values.global.scheme .Values.global.port }}" +
+                "/*<# scheme = http, port = 8080 #>*/",
             HelmGlobalsInlayProvider(),
         )
     }
