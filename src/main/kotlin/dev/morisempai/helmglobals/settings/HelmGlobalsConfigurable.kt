@@ -70,6 +70,12 @@ class HelmGlobalsConfigurable(private val project: Project) : BoundSearchableCon
             checkBox(HelmGlobalsBundle.message("settings.inlay.hints"))
                 .bindSelected(settings.state::showInlayValues)
         }
+
+        row {
+            checkBox(HelmGlobalsBundle.message("settings.hide.syntax.errors"))
+                .bindSelected(settings.state::hideTemplateSyntaxErrors)
+                .comment(HelmGlobalsBundle.message("settings.hide.syntax.errors.comment"))
+        }
     }
 
     override fun reset() {

@@ -141,6 +141,7 @@ it can be committed and shared with the team):
   only `{{ .Values.global.* }}` is analysed and anything else, such as `{{ .Values.service.port }}`,
   is left alone.
 - **Show resolved values as inline hints**.
+- **Hide YAML errors caused by template expressions** — see [Known limitations](#known-limitations).
 
 A meta file is never treated as a templated values file itself, and everything is inert when the
 master checkbox is off.
@@ -276,9 +277,12 @@ skipped.
 they work only where the expression sits inside a value the YAML parser recovers as a scalar. On a
 bare control line you get validation but no Ctrl+Click or hint.
 
-A values file containing control-flow lines is not valid YAML, so IDEA's bundled YAML parser flags it
-(*"Invalid child element in a block sequence"* and similar) independently of this plugin. Those errors
-come from the YAML support, not from here, and this plugin does not suppress them.
+A values file containing control-flow lines is not valid YAML, so IDEA's YAML support reports errors
+on it — *Invalid child element in a block mapping* for a `{{- range … }}` line, and similar. The
+plugin hides those: an error is dropped when it overlaps a `{{ … }}` region **and** the file is one
+the plugin analyses. Genuine YAML mistakes elsewhere in the file, and every file the plugin does not
+recognise, are left alone. Turn it off with *Hide YAML errors caused by template expressions* in the
+settings if you would rather see them.
 
 ## Compatibility
 

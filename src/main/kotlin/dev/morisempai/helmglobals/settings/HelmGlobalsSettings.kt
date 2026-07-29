@@ -25,6 +25,9 @@ class HelmGlobalsState : BaseState() {
 
     var showInlayValues by property(true)
 
+    /** Whether YAML errors provoked by a template expression are hidden. */
+    var hideTemplateSyntaxErrors by property(true)
+
     /**
      * [BaseState.incrementModificationCount] is protected; the delegated properties above bump it
      * themselves, but in-place edits of the two lists have to do so explicitly.
@@ -42,6 +45,8 @@ class HelmGlobalsSettings : SimplePersistentStateComponent<HelmGlobalsState>(Hel
     val isEnabled: Boolean get() = state.enabled
 
     val showInlayValues: Boolean get() = state.showInlayValues
+
+    val hideTemplateSyntaxErrors: Boolean get() = state.hideTemplateSyntaxErrors
 
     /** `null` when no root is configured, meaning every `.Values.*` path is analysed. */
     val variableRoot: String?

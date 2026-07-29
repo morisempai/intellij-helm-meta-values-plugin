@@ -79,6 +79,9 @@
                 isEnabledByDefault="true"
                 implementationClass="dev.morisempai.helmglobals.hints.HelmGlobalsInlayProvider"/>
 
+        <daemon.highlightInfoFilter
+                implementation="dev.morisempai.helmglobals.highlighting.TemplateSyntaxErrorFilter"/>
+
         <platform.backend.documentation.targetProvider
                 implementation="dev.morisempai.helmglobals.doc.HelmGlobalsDocumentationTargetProvider"/>
 

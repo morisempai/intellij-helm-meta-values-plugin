@@ -3,6 +3,7 @@ package dev.morisempai.helmglobals
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.guessProjectDir
 import com.intellij.openapi.util.Key
+import com.intellij.openapi.util.TextRange
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
@@ -14,6 +15,7 @@ import com.intellij.psi.util.PsiModificationTracker
 import dev.morisempai.helmglobals.directive.HelmGlobalsDirective
 import dev.morisempai.helmglobals.directive.HelmGlobalsDirectives
 import dev.morisempai.helmglobals.meta.MetaValuesService
+import dev.morisempai.helmglobals.psi.TemplateScanner
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
 import java.nio.file.FileSystems
 import java.nio.file.InvalidPathException
@@ -24,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap
 object HelmGlobalsSupport {
 
     private val CONTEXT_KEY = Key.create<CachedValue<Optional>>("helm.globals.context")
+
+    private val REGIONS_KEY = Key.create<CachedValue<List<TextRange>>>("helm.globals.template.regions")
 
     private val matcherCache = ConcurrentHashMap<String, PathMatcher>()
 
@@ -51,6 +55,14 @@ object HelmGlobalsSupport {
     }
 
     fun isValuesFile(file: PsiFile): Boolean = contextFor(file) != null
+
+    /** Ranges of the `{{ … }}` regions in [file], cached because highlighting asks per problem. */
+    fun templateRegions(file: PsiFile): List<TextRange> {
+        val original = file.originalFile
+        return CachedValuesManager.getCachedValue(original, REGIONS_KEY) {
+            CachedValueProvider.Result.create(TemplateScanner.regions(original.text), original)
+        }
+    }
 
     /** The directive written in [file], regardless of whether the file is otherwise analysed. */
     fun directiveOf(file: PsiFile): HelmGlobalsDirective? =

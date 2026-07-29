@@ -1,6 +1,7 @@
 package dev.morisempai.helmglobals
 
 import com.intellij.codeInsight.lookup.LookupElementPresentation
+import com.intellij.lang.annotation.HighlightSeverity
 import com.intellij.psi.PsiManager
 import com.intellij.testFramework.fixtures.BasePlatformTestCase
 import dev.morisempai.helmglobals.doc.HelmGlobalDocumentationHtml
@@ -305,6 +306,38 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         assertTrue(descriptions().none { it.contains("global.nope") })
     }
 
+    // ---- YAML errors provoked by templates ---------------------------------------------------
+
+    fun testControlFlowDoesNotLeaveYamlErrorsInAValuesFile() {
+        myFixture.configureByText("values.yaml", RANGE_BLOCK)
+        assertTrue(errors().toString(), errors().isEmpty())
+    }
+
+    fun testYamlErrorsRemainInFilesThePluginDoesNotAnalyse() {
+        myFixture.configureByText("deployment.yaml", RANGE_BLOCK)
+        // Proof that the block really is invalid YAML, and that the filter is scoped to values files.
+        assertTrue(errors().any { it.contains("Invalid child element") })
+    }
+
+    fun testYamlErrorsRemainWhenTheSettingIsOff() {
+        HelmGlobalsSettings.getInstance(project).state.hideTemplateSyntaxErrors = false
+        myFixture.configureByText("values.yaml", RANGE_BLOCK)
+        assertTrue(errors().any { it.contains("Invalid child element") })
+    }
+
+    fun testAnErrorAwayFromAnyTemplateIsStillReported() {
+        myFixture.configureByText(
+            "values.yaml",
+            """
+            registry: {{ .Values.global.registry }}
+            broken:
+              - a
+             bad: indent
+            """.trimIndent(),
+        )
+        assertTrue(errors().toString(), errors().isNotEmpty())
+    }
+
     // ---- quick fix ------------------------------------------------------------------------
 
     fun testQuickFixAddsTheMissingKeyToTheMetaFile() {
@@ -347,6 +380,10 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
     private fun descriptions(): List<String> =
         myFixture.doHighlighting().mapNotNull { it.description }
 
+    private fun errors(): List<String> = myFixture.doHighlighting()
+        .filter { it.severity == HighlightSeverity.ERROR }
+        .mapNotNull { it.description }
+
     /** In-memory text: the quick fix edits through PSI, which is not flushed to disk in tests. */
     private fun metaFileText(): String {
         val file = MetaValuesService.getInstance(project).metaVirtualFiles().single()
@@ -355,6 +392,14 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
 
     private companion object {
         const val META_FILE_NAME = ".helm-globals.yaml"
+
+        /** Valid Helm, invalid YAML: the control lines sit where a mapping key is expected. */
+        val RANGE_BLOCK = """
+            services:
+            {{- range .Values.global.hosts }}
+              - {{ . }}
+            {{- end }}
+        """.trimIndent()
         val META_CONTENT = """
             global:
               # -- Container registry all images are pulled from.
