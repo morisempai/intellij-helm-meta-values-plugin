@@ -7,6 +7,13 @@ import org.jetbrains.yaml.psi.YAMLKeyValue
  * One definition of a variable, coming from one meta values file.
  * The same [path] can have several [MetaValue]s when more than one meta file is configured.
  */
+/**
+ * A sequence value, kept item by item so a `range` over it can be previewed.
+ * [allScalars] is false as soon as one item is a mapping or a nested list, which is when the loop
+ * body would reach into the item and the preview cannot be worked out.
+ */
+data class MetaSequence(val items: List<String>, val allScalars: Boolean)
+
 data class MetaValue(
     val path: String,
     /** Rendered value, or `null` when the node is a mapping (i.e. an intermediate node). */
@@ -18,6 +25,8 @@ data class MetaValue(
     /** Comment documenting the key, as described by [MetaDocComments]; `null` when undocumented. */
     val doc: String?,
     val pointer: SmartPsiElementPointer<YAMLKeyValue>,
+    /** Non-null when the value is a YAML sequence. */
+    val sequence: MetaSequence? = null,
 )
 
 class MetaIndex(
@@ -40,6 +49,9 @@ class MetaIndex(
 
     /** Documentation for [path], taken from the first meta file that documents it. */
     fun docOf(path: String): String? = definitionsOf(path).firstNotNullOfOrNull { it.doc }
+
+    /** The sequence at [path], from the first meta file that defines it as one. */
+    fun sequenceOf(path: String): MetaSequence? = definitionsOf(path).firstNotNullOfOrNull { it.sequence }
 
     /** Meta files that do *not* define [path], out of all files that contributed to this index. */
     fun sourcesMissing(path: String): List<String> {

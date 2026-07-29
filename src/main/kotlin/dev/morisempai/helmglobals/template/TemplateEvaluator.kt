@@ -15,12 +15,20 @@ object TemplateEvaluator {
 
     /**
      * [body] is the expression without its `{{ }}`. [resolve] maps a path written after `.Values.`
-     * to its value, returning `null` for anything it does not know or that is not a scalar.
+     * to its value, returning `null` for anything it does not know or that is not a scalar. [dot]
+     * is the value of `.`, which is what a `range` binds it to; without one, a bare dot makes the
+     * expression unevaluable. [variables] are the `$name` bindings in scope, as declared by
+     * `range $i, $host := …`.
      */
-    fun evaluate(body: String, resolve: (String) -> String?): String? {
+    fun evaluate(
+        body: String,
+        dot: String? = null,
+        variables: Map<String, String> = emptyMap(),
+        resolve: (String) -> String?,
+    ): String? {
         val tokens = tokenize(body.trim().removePrefix("-").removeSuffix("-")) ?: return null
         if (tokens.isEmpty()) return null
-        val parser = Parser(tokens, resolve)
+        val parser = Parser(tokens, dot, variables, resolve)
         val value = parser.pipeline() ?: return null
         // Trailing tokens mean the parser stopped early; `failed` means an operand could not be
         // resolved. Either way the value in hand is only part of the expression.
@@ -33,6 +41,8 @@ object TemplateEvaluator {
         data class Identifier(val name: String) : Token
         data class Literal(val value: String) : Token
         data class Path(val path: String) : Token
+        data object Dot : Token
+        data class Variable(val name: String) : Token
         data object Pipe : Token
         data object Open : Token
         data object Close : Token
@@ -55,6 +65,21 @@ object TemplateEvaluator {
                     val end = endOfLiteral(text, index) ?: return null
                     tokens += Token.Literal(unescape(text.substring(index + 1, end)))
                     index = end + 1
+                }
+
+                // A lone dot is the current element inside a `range`.
+                char == '.' && (index + 1 >= text.length || !text[index + 1].isLetter()) -> {
+                    tokens += Token.Dot
+                    index++
+                }
+
+                // `$name`, but not the `$.Values.x` form handled just below.
+                char == '$' && !text.startsWith(VALUES, index + 1) -> {
+                    var end = index + 1
+                    while (end < text.length && (text[end].isLetterOrDigit() || text[end] == '_')) end++
+                    if (end == index + 1) return null
+                    tokens += Token.Variable(text.substring(index + 1, end))
+                    index = end
                 }
 
                 char == '.' || char == '$' -> {
@@ -118,7 +143,12 @@ object TemplateEvaluator {
         data class Function(val name: String) : Operand
     }
 
-    private class Parser(private val tokens: List<Token>, private val resolve: (String) -> String?) {
+    private class Parser(
+        private val tokens: List<Token>,
+        private val dot: String?,
+        private val variables: Map<String, String>,
+        private val resolve: (String) -> String?,
+    ) {
         private var position = 0
 
         /** Set when an operand was consumed but could not be turned into a value. */
@@ -171,6 +201,17 @@ object TemplateEvaluator {
                     val resolved = resolve(token.path)
                     if (resolved == null) failed = true
                     resolved?.let { Operand.Value(it) }
+                }
+                Token.Dot -> {
+                    position++
+                    if (dot == null) failed = true
+                    dot?.let { Operand.Value(it) }
+                }
+                is Token.Variable -> {
+                    position++
+                    val bound = variables[token.name]
+                    if (bound == null) failed = true
+                    bound?.let { Operand.Value(it) }
                 }
                 Token.Open -> {
                     position++

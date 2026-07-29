@@ -78,6 +78,13 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
         assertNull(docOf("global.image.pullSecret"))
     }
 
+    fun testCompletionShowsAListsItemCount() {
+        myFixture.configureByText("values.yaml", "x: {{ .Values.global.<caret> }}")
+        val presentation = LookupElementPresentation()
+        myFixture.completeBasic().first { it.lookupString == "hosts" }.renderElement(presentation)
+        assertEquals("  [2]", presentation.tailText)
+    }
+
     fun testCompletionShowsTheDocInTheRightHandColumn() {
         myFixture.configureByText("values.yaml", "x: {{ .Values.global.<caret> }}")
         val presentation = LookupElementPresentation()
@@ -362,6 +369,10 @@ class HelmGlobalsFixtureTest : BasePlatformTestCase() {
               # Detached by the blank line below, so not documentation.
 
               detached: x
+
+              hosts:
+                - a.dev.corp
+                - b.dev.corp
 
               # -- Image settings.
               image:

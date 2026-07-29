@@ -19,6 +19,9 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
               host: example
               scheme: http
               port: 8080
+              hosts:
+                - a.dev.corp
+                - b.dev.corp
               image:
                 pullPolicy: IfNotPresent
             """.trimIndent(),
@@ -88,6 +91,83 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
             "values.yaml",
             "url: {{ b64enc .Values.global.scheme .Values.global.port }}" +
                 "/*<# scheme = http, port = 8080 #>*/",
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsARangeOverAList() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.hosts }}
+              - {{ . }}
+            /*<# block [  - a.dev.corp] #>*/
+            /*<# block [  - b.dev.corp] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testAppliesTheLoopBodyToEachElement() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.hosts }}
+              - host: {{ . | quote }}
+                port: {{ .Values.global.port }}/*<# = 8080 #>*/
+            /*<# block [  - host: "a.dev.corp"] #>*/
+            /*<# block [    port: 8080] #>*/
+            /*<# block [  - host: "b.dev.corp"] #>*/
+            /*<# block [    port: 8080] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsARangeUsingAssignedVariables() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range ${'$'}i, ${'$'}host := .Values.global.hosts }}
+              - id: {{ ${'$'}i }}
+                name: {{ ${'$'}host }}
+            /*<# block [  - id: 0] #>*/
+            /*<# block [    name: a.dev.corp] #>*/
+            /*<# block [  - id: 1] #>*/
+            /*<# block [    name: b.dev.corp] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsNoPreviewWhenTheBodyCannotBeRendered() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.hosts }}
+              - {{ . | b64enc }}
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testShowsNoPreviewForAnUnknownList() {
+        doTestProvider(
+            "values.yaml",
+            """
+            hosts:
+            {{- range .Values.global.nope }}
+              - {{ . }}
+            {{- end }}
+            """.trimIndent(),
             HelmGlobalsInlayProvider(),
         )
     }

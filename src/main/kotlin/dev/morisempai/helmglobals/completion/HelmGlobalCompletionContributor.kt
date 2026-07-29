@@ -116,17 +116,27 @@ object HelmGlobalLookups {
     ): LookupElement {
         val definitions = index.definitionsOf(fullPath)
         val isMapping = index.isMapping(fullPath)
+        val sequence = index.sequenceOf(fullPath)
 
         var element = LookupElementBuilder.create(childName)
-            .withIcon(if (isMapping) AllIcons.Json.Object else AllIcons.Nodes.Field)
+            .withIcon(
+                when {
+                    isMapping -> AllIcons.Json.Object
+                    sequence != null -> AllIcons.Json.Array
+                    else -> AllIcons.Nodes.Field
+                }
+            )
 
-        if (isMapping) {
-            val childCount = index.childrenOf(fullPath).size
-            element = element
-                .withTailText("  {$childCount}", true)
-                .withInsertHandler(DescendInsertHandler)
-        } else {
-            MetaValueRendering.inlineSummary(definitions, multipleSources)?.let {
+        when {
+            isMapping -> {
+                val childCount = index.childrenOf(fullPath).size
+                element = element
+                    .withTailText("  {$childCount}", true)
+                    .withInsertHandler(DescendInsertHandler)
+            }
+            // A list is worth ranging over, and its item count says more than its flattened text.
+            sequence != null -> element = element.withTailText("  [${sequence.items.size}]", true)
+            else -> MetaValueRendering.inlineSummary(definitions, multipleSources)?.let {
                 element = element.withTailText("  = $it", true)
             }
         }

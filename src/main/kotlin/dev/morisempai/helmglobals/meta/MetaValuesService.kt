@@ -181,10 +181,19 @@ class MetaValuesService(private val project: Project) {
                 sourceName = sourceName,
                 doc = MetaDocComments.of(keyValue),
                 pointer = pointerManager.createSmartPsiElementPointer<YAMLKeyValue>(keyValue),
+                sequence = (value as? YAMLSequence)?.let(::readSequence),
             )
 
             if (value is YAMLMapping) collect(value, path, sourceName, byPath, children, depth + 1)
         }
+    }
+
+    private fun readSequence(sequence: YAMLSequence): MetaSequence {
+        val values = sequence.items.map { it.value }
+        return MetaSequence(
+            items = values.map { renderValue(it) },
+            allScalars = values.all { it is YAMLScalar },
+        )
     }
 
     private fun renderValue(value: YAMLValue?): String = when (value) {

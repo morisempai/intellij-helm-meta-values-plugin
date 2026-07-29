@@ -22,7 +22,7 @@ The plugin reads the meta file, and then completes, validates and displays those
 | **Completion** | Typing `{{ .Values.global.` offers the keys of the meta file. Mappings are marked with an object icon and a `{n}` child count, and selecting one inserts the dot and re-opens completion so you can walk the tree. Scalars show `= value` in the tail. |
 | **Inspection** | `Unknown Helm global variable` (WARNING) underlines the first segment that does not exist in the meta file, plus a weak warning for using a mapping where a scalar is expected. Two more inspections cover a meta file that cannot be found and — opt-in — a variable missing from some of several meta files. |
 | **Quick fix** | *Add `global.x.y` to `.helm-globals.yaml`* creates the key — including any missing parent mappings — in the meta file and navigates to it. |
-| **Inline hints** | The resolved value is shown after the expression: `registry: {{ .Values.global.registry }}` `= registry.dev.corp`. Toggle under Settings \| Editor \| Inlay Hints \| Values, or in the plugin's own settings page. |
+| **Inline hints** | The value the expression renders is shown after it: `registry: {{ .Values.global.registry }}` `= registry.dev.corp`. A `range` over a list is previewed filled in, over as many lines as it renders. Toggle under Settings \| Editor \| Inlay Hints \| Values, or in the plugin's own settings page. |
 | **Navigation** | Ctrl+Click / Go to Declaration on any segment jumps to the corresponding key in the meta file. Each segment is its own reference, so `global.image` in `global.image.pullPolicy` navigates to the `image` mapping. |
 | **Documentation** | Ctrl+Q (Quick Documentation) on a reference shows the comment documenting the variable, its value in every configured meta file, and the files where it is missing. On a function name it shows the signature and what the function does. |
 | **Template functions** | Go template built-ins, Sprig functions and the control actions are completed at the start of an expression, after a pipe and inside parentheses, with their arguments and a one-line description. |
@@ -181,6 +181,41 @@ hint is either what the expression really renders or an explicit list of parts.
 
 An unknown function name is never reported as an error: charts define their own helpers with
 `define`, so the catalogue is for completion only.
+
+## Range previews
+
+A `range` over a list in the meta file is shown filled in, one line per line it renders, stacked
+just above the closing `{{ end }}`:
+
+```yaml
+hosts:
+{{- range .Values.global.hosts }}
+  - host: {{ . | quote }}
+    port: {{ .Values.global.port }}
+      - host: "a.dev.corp"      ← preview
+        port: 8080
+      - host: "b.dev.corp"
+        port: 8080
+{{- end }}
+```
+
+The assignment forms bind their variables, so `{{ $host }}` and `{{ $i }}` render too:
+
+```yaml
+{{- range $i, $host := .Values.global.hosts }}
+  - id: {{ $i }}
+    name: {{ $host }}
+{{- end }}
+```
+
+- The list has to hold scalars, and every expression in the body has to be one the evaluator
+  understands. If any line cannot be rendered exactly, the whole preview is dropped rather than
+  shown half-filled.
+- A nested `if` or `range` inside the body does not close the loop early, but its own expressions
+  are evaluated as ordinary lines — the preview does not model branching, so a body containing a
+  conditional is usually skipped.
+- Previews stop after 12 lines and end with `… N more`.
+- Lists show as `[n]` in completion, with the item count instead of their flattened text.
 
 ## Supported syntax
 

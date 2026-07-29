@@ -5,14 +5,16 @@ import com.intellij.codeInsight.hints.declarative.InlayHintsCollector
 import com.intellij.codeInsight.hints.declarative.InlayHintsProvider
 import com.intellij.codeInsight.hints.declarative.InlayTreeSink
 import com.intellij.codeInsight.hints.declarative.InlineInlayPosition
-import com.intellij.codeInsight.hints.declarative.SharedBypassCollector
+import com.intellij.codeInsight.hints.declarative.OwnBypassCollector
 import com.intellij.openapi.editor.Editor
-import com.intellij.psi.PsiElement
+import com.intellij.openapi.util.TextRange
 import com.intellij.psi.PsiFile
+import com.intellij.psi.util.PsiTreeUtil
 import dev.morisempai.helmglobals.HelmGlobalsSupport
 import dev.morisempai.helmglobals.meta.MetaIndex
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.psi.HelmTemplates
+import dev.morisempai.helmglobals.psi.TemplateScanner
 import dev.morisempai.helmglobals.psi.ValuesReference
 import dev.morisempai.helmglobals.template.TemplateEvaluator
 import dev.morisempai.helmglobals.settings.HelmGlobalsSettings
@@ -34,18 +36,40 @@ class HelmGlobalsInlayProvider : InlayHintsProvider {
 private class ResolvedValueCollector(
     private val index: MetaIndex,
     private val root: String?,
-) : SharedBypassCollector {
+) : OwnBypassCollector {
 
     private val multipleSources = index.sourceNames.size > 1
 
-    override fun collectFromElement(element: PsiElement, sink: InlayTreeSink) {
-        if (element !is YAMLScalar) return
+    /**
+     * Collected for the file rather than per element: a `{{- range ... }}` line sits at mapping
+     * level and never becomes a PSI element of its own, so there would be nothing to hang the loop
+     * preview on.
+     */
+    override fun collectHintsForFile(file: PsiFile, sink: InlayTreeSink) {
+        // A range gets a preview of the whole loop instead of a value hint on its expression. The
+        // test is made on the file text because the YAML parser breaks a range line up differently
+        // depending on its form, and the scalar alone may not show that it is part of one.
+        val text = file.text
+        val rangeRegions = TemplateScanner.regions(text).filter { region ->
+            RANGE_EXPRESSION.containsMatchIn(
+                text.substring(region.startOffset, region.endOffset).removeSurrounding("{{", "}}")
+            )
+        }
+
+        for (scalar in PsiTreeUtil.findChildrenOfType(file, YAMLScalar::class.java)) {
+            collectFromScalar(scalar, sink, rangeRegions)
+        }
+        RangePreview(index, root).collect(file, sink)
+    }
+
+    private fun collectFromScalar(element: YAMLScalar, sink: InlayTreeSink, rangeRegions: List<TextRange>) {
         val references = HelmTemplates.referencesIn(element)
         if (references.isEmpty()) return
 
         // One hint per `{{ ... }}` region, even when it mentions several variables.
         for ((_, group) in references.groupBy { it.templateRange }) {
             val anchor = HelmTemplates.templateEndOffset(element, group.first())
+            if (rangeRegions.any { anchor >= it.startOffset && anchor <= it.endOffset }) continue
 
             // Preferably the value the whole expression renders; only when it cannot be worked out
             // does the hint fall back to listing the variables it mentions.
@@ -103,3 +127,5 @@ private class ResolvedValueCollector(
         }
     }
 }
+
+private val RANGE_EXPRESSION = Regex("""^-?\s*range\b""")
