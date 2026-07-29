@@ -236,6 +236,35 @@ services:
 `{{ $service.name }}` works too, after `range $service := .Values.global.services`, as do nested
 fields such as `{{ .probe.path }}`.
 
+A **mapping** is iterated the same way, sorted by key as Go does, with the first variable bound to
+the key:
+
+```yaml
+# .helm-globals.yaml
+global:
+  endpoints:
+    api:
+      port: 8080
+    web:
+      port: 80
+```
+
+```yaml
+endpoints:
+{{- range $key, $value := .Values.global.endpoints }}
+  - name: {{ $key }}
+    port: {{ $value.port }}
+      - name: api        ← preview
+        port: 8080
+      - name: web
+        port: 80
+{{- end }}
+```
+
+Because the element comes from the meta file, its fields are known exhaustively, so a guard on one
+that is absent is answered rather than giving up: `{{- if $value.probe }}` keeps the entries that
+have a probe and drops the rest.
+
 - The list has to hold either all scalars or all mappings, and every expression in the body has to be
   one the evaluator understands — including every field it reaches for. If any line cannot be
   rendered exactly, the whole preview is dropped rather than shown half-filled.

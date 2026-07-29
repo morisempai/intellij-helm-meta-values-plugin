@@ -26,10 +26,10 @@ class ConditionHints(private val index: MetaIndex, private val root: String?) {
 
         for (region in conditionRegions(text)) {
             val expression = text.substring(region.startOffset, region.endOffset).removeSurrounding("{{", "}}")
-            val taken = TemplateEvaluator.condition(expression) { path ->
+            val taken = TemplateEvaluator.condition(expression, resolve = { path ->
                 if (!ValuesReference.isUnder(path, root)) null
                 else MetaValueRendering.singleScalarValue(index.definitionsOf(path))
-            } ?: continue
+            }) ?: continue
 
             sink.addPresentation(
                 position = InlineInlayPosition(region.endOffset, relatedToPrevious = true),

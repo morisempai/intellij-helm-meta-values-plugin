@@ -15,8 +15,11 @@ data class RangeBlock(
     val end: TextRange,
     /** Variable bound to the element, as in `range $host := …` — without the `$`. */
     val elementVariable: String? = null,
-    /** Variable bound to the position, as in `range $i, $host := …`. */
-    val indexVariable: String? = null,
+    /**
+     * The first variable of `range $i, $host := …`: the position when ranging a list, the key when
+     * ranging a mapping.
+     */
+    val keyVariable: String? = null,
 )
 
 /**
@@ -56,7 +59,7 @@ object RangeBlocks {
                             end = region,
                             // With two variables the second is the element, with one it is the first.
                             elementVariable = second.ifEmpty { first }.ifEmpty { null },
-                            indexVariable = if (second.isEmpty()) null else first,
+                            keyVariable = if (second.isEmpty()) null else first,
                         )
                     }
                 }

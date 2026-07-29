@@ -24,7 +24,7 @@ class RangeBlocksTest {
             "{{- range \$host := .Values.global.hosts }}\n- {{ \$host }}\n{{- end }}"
         ).single()
         assertEquals("host", block.elementVariable)
-        assertNull(block.indexVariable)
+        assertNull(block.keyVariable)
     }
 
     @Test
@@ -33,7 +33,7 @@ class RangeBlocksTest {
             "{{- range \$i, \$host := .Values.global.hosts }}\n- {{ \$host }}\n{{- end }}"
         ).single()
         assertEquals("host", block.elementVariable)
-        assertEquals("i", block.indexVariable)
+        assertEquals("i", block.keyVariable)
     }
 
     @Test

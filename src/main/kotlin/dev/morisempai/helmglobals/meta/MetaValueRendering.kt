@@ -4,6 +4,13 @@ object MetaValueRendering {
 
     const val MAX_INLINE_LENGTH: Int = 48
 
+    /**
+     * Stands in for a mapping where a value is expected. It exists so that `{{ if .probe }}` can be
+     * decided — a non-empty mapping is true — and reads as a placeholder rather than a value if it
+     * ever reaches the screen.
+     */
+    const val MAPPING_PLACEHOLDER: String = "{…}"
+
     fun abbreviate(value: String, max: Int = MAX_INLINE_LENGTH): String {
         val singleLine = value.lineSequence().joinToString(" ") { it.trim() }.trim()
         return if (singleLine.length <= max) singleLine else singleLine.take(max - 1) + "…"

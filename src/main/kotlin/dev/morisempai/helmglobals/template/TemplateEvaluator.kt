@@ -14,23 +14,40 @@ package dev.morisempai.helmglobals.template
 object TemplateEvaluator {
 
     /**
+     * What a `range` binds while its body is rendered.
+     *
+     * [fields] holds the current element's scalar leaves under dotted names, so `{{ .probe.path }}`
+     * resolves; [fieldsAreComplete] says they are the whole story, which is what lets a condition
+     * treat a field that is not there as nil rather than as something unknown. [elementVariable] is
+     * the name bound to the element itself, so `{{ $service.port }}` reaches the same fields.
+     */
+    class Bindings(
+        val dot: String? = null,
+        val fields: Map<String, String> = emptyMap(),
+        val fieldsAreComplete: Boolean = false,
+        val variables: Map<String, String> = emptyMap(),
+        val elementVariable: String? = null,
+        /** Set only while deciding a condition: an absent field is nil, and nil is false. */
+        val missingFieldIsNil: Boolean = false,
+    ) {
+        internal fun forCondition() = Bindings(
+            dot, fields, fieldsAreComplete, variables, elementVariable,
+            missingFieldIsNil = fieldsAreComplete,
+        )
+    }
+
+    /**
      * [body] is the expression without its `{{ }}`. [resolve] maps a path written after `.Values.`
-     * to its value, returning `null` for anything it does not know or that is not a scalar. [dot]
-     * is the value of `.`, which is what a `range` binds it to; without one, a bare dot makes the
-     * expression unevaluable. [dotFields] are the fields of the current element, so that a range
-     * over a list of mappings can render `{{ .name }}`. [variables] are the `$name` bindings in
-     * scope, as declared by `range $i, $host := …`.
+     * to its value, returning `null` for anything it does not know or that is not a scalar.
      */
     fun evaluate(
         body: String,
-        dot: String? = null,
-        dotFields: Map<String, String> = emptyMap(),
-        variables: Map<String, String> = emptyMap(),
+        bindings: Bindings = Bindings(),
         resolve: (String) -> String?,
     ): String? {
         val tokens = tokenize(body.trim().removePrefix("-").removeSuffix("-")) ?: return null
         if (tokens.isEmpty()) return null
-        val parser = Parser(tokens, dot, dotFields, variables, resolve)
+        val parser = Parser(tokens, bindings, resolve)
         val value = parser.pipeline() ?: return null
         // Trailing tokens mean the parser stopped early; `failed` means an operand could not be
         // resolved. Either way the value in hand is only part of the expression.
@@ -44,14 +61,12 @@ object TemplateEvaluator {
      */
     fun condition(
         body: String,
-        dot: String? = null,
-        dotFields: Map<String, String> = emptyMap(),
-        variables: Map<String, String> = emptyMap(),
+        bindings: Bindings = Bindings(),
         resolve: (String) -> String?,
     ): Boolean? {
         val expression = CONDITION_KEYWORD.replace(body.trim().removePrefix("-").trim(), "")
         if (expression.isBlank()) return null
-        return evaluate(expression, dot, dotFields, variables, resolve)?.let(::isTruthy)
+        return evaluate(expression, bindings.forCondition(), resolve)?.let(::isTruthy)
     }
 
     /**
@@ -183,9 +198,7 @@ object TemplateEvaluator {
 
     private class Parser(
         private val tokens: List<Token>,
-        private val dot: String?,
-        private val dotFields: Map<String, String>,
-        private val variables: Map<String, String>,
+        private val bindings: Bindings,
         private val resolve: (String) -> String?,
     ) {
         private var position = 0
@@ -243,20 +256,15 @@ object TemplateEvaluator {
                 }
                 Token.Dot -> {
                     position++
-                    if (dot == null) failed = true
-                    dot?.let { Operand.Value(it) }
+                    value(bindings.dot)
                 }
                 is Token.DotField -> {
                     position++
-                    val field = dotFields[token.name]
-                    if (field == null) failed = true
-                    field?.let { Operand.Value(it) }
+                    value(field(token.name))
                 }
                 is Token.Variable -> {
                     position++
-                    val bound = variables[token.name]
-                    if (bound == null) failed = true
-                    bound?.let { Operand.Value(it) }
+                    value(variable(token.name))
                 }
                 Token.Open -> {
                     position++
@@ -266,6 +274,28 @@ object TemplateEvaluator {
                     Operand.Value(value)
                 }
                 Token.Pipe, Token.Close -> null
+            }
+        }
+
+        private fun value(text: String?): Operand? {
+            if (text == null) failed = true
+            return text?.let { Operand.Value(it) }
+        }
+
+        private fun field(name: String): String? =
+            bindings.fields[name] ?: if (bindings.missingFieldIsNil) "" else null
+
+        /**
+         * A `$name` binding, or a field reached through the variable the element is bound to:
+         * `$service` is the element, so `$service.port` is its `port` field.
+         */
+        private fun variable(name: String): String? {
+            bindings.variables[name]?.let { return it }
+            val element = bindings.elementVariable ?: return null
+            return when {
+                name == element -> bindings.dot
+                name.startsWith("$element.") -> field(name.removePrefix("$element."))
+                else -> null
             }
         }
 

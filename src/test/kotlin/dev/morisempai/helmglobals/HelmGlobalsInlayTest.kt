@@ -24,6 +24,16 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
               hosts:
                 - a.dev.corp
                 - b.dev.corp
+              labels:
+                zone: eu
+                tier: web
+              endpoints:
+                api:
+                  port: 8080
+                  probe:
+                    path: /healthz
+                web:
+                  port: 80
               services:
                 - name: api
                   port: 8080
@@ -285,6 +295,72 @@ class HelmGlobalsInlayTest : DeclarativeInlayHintsProviderTestCase() {
             services:
             {{- range .Values.global.services }}
               - {{ .nope }}
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsARangeOverAMappingOfMappings() {
+        doTestProvider(
+            "values.yaml",
+            """
+            endpoints:
+            {{- range ${'$'}key, ${'$'}value := .Values.global.endpoints }}
+              - name: {{ ${'$'}key }}
+                port: {{ ${'$'}value.port }}
+            /*<# block [  - name: api] #>*/
+            /*<# block [    port: 8080] #>*/
+            /*<# block [  - name: web] #>*/
+            /*<# block [    port: 80] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testPreviewsARangeOverAMappingOfScalars() {
+        // Sorted by key, which is the order Go visits a map in: tier before zone.
+        doTestProvider(
+            "values.yaml",
+            """
+            labels:
+            {{- range ${'$'}key, ${'$'}value := .Values.global.labels }}
+              {{ ${'$'}key }}: {{ ${'$'}value }}
+            /*<# block [  tier: web] #>*/
+            /*<# block [  zone: eu] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    fun testARangeOverAMappingBindsTheDotToTheValue() {
+        doTestProvider(
+            "values.yaml",
+            """
+            labels:
+            {{- range .Values.global.labels }}
+              - {{ . }}
+            /*<# block [  - web] #>*/
+            /*<# block [  - eu] #>*/
+            {{- end }}
+            """.trimIndent(),
+            HelmGlobalsInlayProvider(),
+        )
+    }
+
+    /** No `= true` on the if: inside a loop the answer differs per entry, so one hint cannot say. */
+    fun testPreviewsNestedFieldsOfAMappingValue() {
+        doTestProvider(
+            "values.yaml",
+            """
+            endpoints:
+            {{- range ${'$'}key, ${'$'}value := .Values.global.endpoints }}
+            {{- if ${'$'}value.probe }}
+              {{ ${'$'}key }}: {{ ${'$'}value.probe.path }}
+            {{- end }}
+            /*<# block [  api: /healthz] #>*/
             {{- end }}
             """.trimIndent(),
             HelmGlobalsInlayProvider(),

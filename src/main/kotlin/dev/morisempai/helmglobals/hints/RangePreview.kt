@@ -5,7 +5,6 @@ import com.intellij.codeInsight.hints.declarative.HintFormat
 import com.intellij.codeInsight.hints.declarative.InlayTreeSink
 import com.intellij.psi.PsiFile
 import dev.morisempai.helmglobals.meta.MetaIndex
-import dev.morisempai.helmglobals.meta.MetaSequence
 import dev.morisempai.helmglobals.meta.MetaValueRendering
 import dev.morisempai.helmglobals.psi.TemplateScanner
 import dev.morisempai.helmglobals.psi.ValuesReference
@@ -37,16 +36,12 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
 
         for (block in RangeBlocks.findAll(text)) {
             if (!ValuesReference.isUnder(block.path, root)) continue
-            val sequence = index.sequenceOf(block.path) ?: continue
-            // Either shape works: a list of scalars used through the dot, or a list of mappings
-            // whose fields the body reaches into. A mixture is not worth guessing at.
-            if (sequence.items.isEmpty()) continue
-            if (!sequence.allScalars && !sequence.allMappings) continue
+            val turns = turnsOf(block.path) ?: continue
 
             val body = text.substring(block.body.startOffset, block.body.endOffset)
             if (body.isBlank()) continue
 
-            val rendered = render(body, sequence, block) ?: continue
+            val rendered = render(body, turns, block) ?: continue
             if (rendered.isEmpty()) continue
 
             rendered.forEachIndexed { line, content ->
@@ -55,7 +50,7 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
                     // preview to read top to bottom in iteration order.
                     position = AboveLineIndentedPosition(block.end.startOffset, -line, 0),
                     payloads = null,
-                    tooltip = "${block.path}: ${sequence.items.size} items",
+                    tooltip = "${block.path}: ${turns.size} entries",
                     hintFormat = HintFormat.default,
                 ) {
                     text(content)
@@ -64,37 +59,60 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
         }
     }
 
-    /** `null` as soon as one expression cannot be rendered, so the preview is all or nothing. */
-    private fun render(body: String, sequence: MetaSequence, block: RangeBlock): List<String>? {
-        val out = ArrayList<String>()
-        val items = sequence.items
+    /**
+     * One turn of the loop: what the body sees for a single element. [key] is the position for a
+     * list and the key for a mapping, which is what Go binds the first `range` variable to.
+     */
+    private class Turn(val key: String, val dot: String?, val fields: Map<String, String>)
 
-        for ((position, item) in items.withIndex()) {
-            val fields = sequence.fields.getOrElse(position) { emptyMap() }
-            val variables = buildMap {
-                block.indexVariable?.let { put(it, position.toString()) }
-                block.elementVariable?.let { name ->
-                    if (sequence.allScalars) put(name, item)
-                    // `range $service := .Values.services` then `{{ $service.port }}`.
-                    fields.forEach { (field, value) -> put("$name.$field", value) }
-                }
+    /**
+     * The turns a `range` over [path] would make, or `null` when the value is not something to
+     * iterate. A list of scalars is seen through the dot, a list of mappings or a mapping through
+     * its fields.
+     */
+    private fun turnsOf(path: String): List<Turn>? {
+        index.sequenceOf(path)?.let { sequence ->
+            // A mixture of scalars and mappings is not worth guessing at.
+            if (sequence.items.isEmpty()) return null
+            if (!sequence.allScalars && !sequence.allMappings) return null
+            return sequence.items.mapIndexed { position, item ->
+                Turn(
+                    key = position.toString(),
+                    // A mapping element has no sensible text for a bare `{{ . }}`, so it stays
+                    // undecidable rather than rendering the mapping's own source text.
+                    dot = item.takeIf { sequence.allScalars },
+                    fields = sequence.fields.getOrElse(position) { emptyMap() },
+                )
             }
-            val element = Element(
-                // For a mapping element there is no sensible text for a bare `{{ . }}`, so it stays
-                // undecidable rather than rendering the mapping's own source text.
-                dot = item.takeIf { sequence.allScalars },
-                fields = fields,
-                variables = variables,
+        }
+        return index.entriesOf(path)
+            ?.takeIf { it.isNotEmpty() }
+            ?.map { Turn(key = it.key, dot = it.scalar, fields = it.fields) }
+    }
+
+    /** `null` as soon as one expression cannot be rendered, so the preview is all or nothing. */
+    private fun render(body: String, turns: List<Turn>, block: RangeBlock): List<String>? {
+        val out = ArrayList<String>()
+
+        for ((position, turn) in turns.withIndex()) {
+            val bindings = TemplateEvaluator.Bindings(
+                dot = turn.dot,
+                fields = turn.fields,
+                // The element comes from the meta file, so its fields are known exhaustively and a
+                // condition on one that is absent can be answered with "no" rather than "unknown".
+                fieldsAreComplete = true,
+                variables = block.keyVariable?.let { mapOf(it to turn.key) }.orEmpty(),
+                elementVariable = block.elementVariable,
             )
-            val lines = renderBody(body, element) ?: return null
+            val lines = renderBody(body, bindings) ?: return null
 
             for (line in lines) {
                 out += line
                 if (out.size >= MAX_LINES) {
-                    // Rendering the remaining items only to count their lines is not worth it; say
-                    // how many items are left instead of how many lines.
-                    val remaining = items.size - position - 1
-                    if (remaining > 0) out += "… $remaining more items"
+                    // Rendering the rest only to count their lines is not worth it; say how many
+                    // entries are left instead of how many lines.
+                    val remaining = turns.size - position - 1
+                    if (remaining > 0) out += "… $remaining more entries"
                     return out
                 }
             }
@@ -107,7 +125,7 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
      * branches actually taken appear. Blank lines are dropped, since the interesting output is the
      * lines that carry content.
      */
-    private fun renderBody(body: String, element: Element): List<String>? {
+    private fun renderBody(body: String, bindings: TemplateEvaluator.Bindings): List<String>? {
         val out = StringBuilder()
         var cursor = 0
         val branches = ArrayDeque<Branch>()
@@ -125,13 +143,13 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
                     // A nested condition inside a branch that is not rendering does not need to be
                     // decided, and often cannot be.
                     val taken = if (!emitting()) false
-                    else condition(expression, element) ?: return null
+                    else condition(expression, bindings) ?: return null
                     branches.addLast(Branch(emitting = taken, taken = taken))
                 }
                 "else" -> {
                     val branch = branches.lastOrNull() ?: return null
                     val taken = if (ELSE_IF.containsMatchIn(expression)) {
-                        condition(expression, element) ?: return null
+                        condition(expression, bindings) ?: return null
                     } else {
                         true
                     }
@@ -142,7 +160,7 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
                 // A nested loop, or a `with` rebinding the dot, is more than this preview models.
                 "range", "with", "define", "block" -> return null
                 else -> if (emitting()) {
-                    out.append(evaluate(expression, element) ?: return null)
+                    out.append(evaluate(expression, bindings) ?: return null)
                 }
             }
         }
@@ -154,20 +172,11 @@ class RangePreview(private val index: MetaIndex, private val root: String?) {
 
     private class Branch(var emitting: Boolean, var taken: Boolean)
 
-    /** What one turn of the loop binds: the dot, the element's fields, and any `$` variables. */
-    private class Element(
-        val dot: String?,
-        val fields: Map<String, String>,
-        val variables: Map<String, String>,
-    )
+    private fun evaluate(expression: String, bindings: TemplateEvaluator.Bindings): String? =
+        TemplateEvaluator.evaluate(expression, bindings, ::resolve)
 
-    private fun evaluate(expression: String, element: Element): String? = TemplateEvaluator.evaluate(
-        expression, element.dot, element.fields, element.variables, ::resolve,
-    )
-
-    private fun condition(expression: String, element: Element): Boolean? = TemplateEvaluator.condition(
-        expression, element.dot, element.fields, element.variables, ::resolve,
-    )
+    private fun condition(expression: String, bindings: TemplateEvaluator.Bindings): Boolean? =
+        TemplateEvaluator.condition(expression, bindings, ::resolve)
 
     private fun resolve(path: String): String? =
         if (!ValuesReference.isUnder(path, root)) null

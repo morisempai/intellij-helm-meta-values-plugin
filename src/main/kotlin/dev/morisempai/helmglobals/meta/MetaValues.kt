@@ -4,10 +4,6 @@ import com.intellij.psi.SmartPsiElementPointer
 import org.jetbrains.yaml.psi.YAMLKeyValue
 
 /**
- * One definition of a variable, coming from one meta values file.
- * The same [path] can have several [MetaValue]s when more than one meta file is configured.
- */
-/**
  * A sequence value, kept item by item so a `range` over it can be previewed.
  *
  * A list of scalars is used through the dot — `{{ . }}` — and a list of mappings through its fields
@@ -24,6 +20,16 @@ data class MetaSequence(
     val allMappings: Boolean get() = fields.isNotEmpty() && fields.all { it.isNotEmpty() }
 }
 
+/**
+ * One entry of a mapping being ranged over. Either [scalar] or [fields] carries the value, according
+ * to whether it is a leaf or a mapping of its own.
+ */
+data class MetaEntry(val key: String, val scalar: String?, val fields: Map<String, String>)
+
+/**
+ * One definition of a variable, coming from one meta values file.
+ * The same [path] can have several [MetaValue]s when more than one meta file is configured.
+ */
 data class MetaValue(
     val path: String,
     /** Rendered value, or `null` when the node is a mapping (i.e. an intermediate node). */
@@ -63,6 +69,44 @@ class MetaIndex(
     /** The sequence at [path], from the first meta file that defines it as one. */
     fun sequenceOf(path: String): MetaSequence? = definitionsOf(path).firstNotNullOfOrNull { it.sequence }
 
+    /**
+     * Entries of the mapping at [path], or `null` when it is not a mapping. Sorted by key, which is
+     * the order Go's `range` visits a map in.
+     */
+    fun entriesOf(path: String): List<MetaEntry>? {
+        if (!isMapping(path)) return null
+        return childrenOf(path).sorted().map { key ->
+            val childPath = "$path.$key"
+            if (isMapping(childPath)) {
+                MetaEntry(key, scalar = null, fields = flatten(childPath, "", 0))
+            } else {
+                MetaEntry(key, scalar = scalarAt(childPath), fields = emptyMap())
+            }
+        }
+    }
+
+    /** Scalar leaves below [path], under names relative to it, so `{{ $value.probe.path }}` resolves. */
+    private fun flatten(path: String, prefix: String, depth: Int): Map<String, String> {
+        if (depth > MAX_FLATTEN_DEPTH) return emptyMap()
+        val fields = LinkedHashMap<String, String>()
+        for (child in childrenOf(path)) {
+            val childPath = "$path.$child"
+            val name = if (prefix.isEmpty()) child else "$prefix.$child"
+            if (isMapping(childPath)) {
+                val nested = flatten(childPath, name, depth + 1)
+                // The mapping itself is bound as well, so a condition on it can be decided.
+                fields[name] = if (nested.isEmpty()) "{}" else MetaValueRendering.MAPPING_PLACEHOLDER
+                fields += nested
+            } else {
+                scalarAt(childPath)?.let { fields[name] = it }
+            }
+        }
+        return fields
+    }
+
+    private fun scalarAt(path: String): String? =
+        definitionsOf(path).firstOrNull { it.isScalar }?.presentableValue
+
     /** Meta files that do *not* define [path], out of all files that contributed to this index. */
     fun sourcesMissing(path: String): List<String> {
         val defined = definitionsOf(path).mapTo(HashSet()) { it.sourceName }
@@ -84,5 +128,7 @@ class MetaIndex(
 
     companion object {
         val EMPTY = MetaIndex(emptyMap(), emptyMap(), emptyList())
+
+        private const val MAX_FLATTEN_DEPTH = 16
     }
 }

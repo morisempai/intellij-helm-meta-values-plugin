@@ -206,7 +206,11 @@ class MetaValuesService(private val project: Project) {
             if (key.isEmpty()) continue
             val name = if (prefix.isEmpty()) key else "$prefix.$key"
             when (val value = keyValue.value) {
-                is YAMLMapping -> fields += fieldsOf(value, name, depth + 1)
+                is YAMLMapping -> {
+                    val nested = fieldsOf(value, name, depth + 1)
+                    fields[name] = if (nested.isEmpty()) "{}" else MetaValueRendering.MAPPING_PLACEHOLDER
+                    fields += nested
+                }
                 else -> fields[name] = renderValue(value)
             }
         }
